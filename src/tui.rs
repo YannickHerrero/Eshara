@@ -11,7 +11,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Padding, Paragraph},
+    widgets::{Block, Borders, Clear, Padding, Paragraph, Wrap},
     DefaultTerminal, Frame,
 };
 
@@ -928,14 +928,16 @@ fn draw_game(frame: &mut Frame, app: &App) {
 
     let text = Text::from(lines);
     let chat_height = chat_area.height as usize;
-    let total_lines = text.lines.len();
+    let total_lines = wrapped_line_count(&text, chat_area.width);
     let scroll = if total_lines > chat_height {
         (total_lines - chat_height) as u16
     } else {
         0
     };
 
-    let paragraph = Paragraph::new(text).scroll((scroll, 0));
+    let paragraph = Paragraph::new(text)
+        .wrap(Wrap { trim: false })
+        .scroll((scroll, 0));
     frame.render_widget(paragraph, chat_area);
 
     // Status bar
@@ -1053,7 +1055,7 @@ fn draw_prompt_screen(frame: &mut Frame, app: &App, title: &str) {
     }
 
     let text = Text::from(lines);
-    frame.render_widget(Paragraph::new(text), center);
+    frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), center);
 }
 
 fn draw_intro(frame: &mut Frame, app: &App) {
@@ -1116,7 +1118,7 @@ fn draw_intro(frame: &mut Frame, app: &App) {
     .areas(area);
 
     let text = Text::from(lines);
-    frame.render_widget(Paragraph::new(text), center);
+    frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), center);
 }
 
 fn draw_waiting(frame: &mut Frame, app: &App) {
@@ -1172,7 +1174,7 @@ fn draw_waiting(frame: &mut Frame, app: &App) {
     .areas(area);
 
     let text = Text::from(lines);
-    frame.render_widget(Paragraph::new(text), center);
+    frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), center);
 }
 
 fn draw_ending(frame: &mut Frame, app: &App) {
@@ -1290,7 +1292,26 @@ fn draw_ending(frame: &mut Frame, app: &App) {
     .areas(area);
 
     let text = Text::from(lines);
-    frame.render_widget(Paragraph::new(text), center);
+    frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), center);
+}
+
+/// Estimate the number of visual lines a `Text` will occupy when wrapped to `width`.
+fn wrapped_line_count(text: &Text, width: u16) -> usize {
+    if width == 0 {
+        return text.lines.len();
+    }
+    let w = width as usize;
+    text.lines
+        .iter()
+        .map(|line| {
+            let line_width: usize = line.spans.iter().map(|s| s.content.len()).sum();
+            if line_width == 0 {
+                1 // empty lines still take one row
+            } else {
+                (line_width + w - 1) / w // ceil division
+            }
+        })
+        .sum()
 }
 
 /// Helper: create a centered rect of given width/height within an area.
