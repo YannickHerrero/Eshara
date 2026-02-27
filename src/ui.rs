@@ -19,6 +19,14 @@ pub enum ChoiceResult {
     OpenMenu,
 }
 
+/// Result of displaying messages — either completed normally or Esc was pressed.
+pub enum MessageResult {
+    /// All messages displayed normally
+    Done,
+    /// Player pressed Esc during animation — caller should open the pause menu
+    OpenMenu,
+}
+
 /// Actions available in the pause menu.
 pub enum PauseAction {
     Resume,
@@ -45,20 +53,33 @@ pub fn clear_screen() -> io::Result<()> {
     Ok(())
 }
 
-/// Check if a key has been pressed (non-blocking)
-fn key_pressed() -> bool {
+/// What happened when we checked for a keypress during animation
+enum AnimKeypress {
+    /// No key was pressed
+    None,
+    /// A non-Esc key was pressed (skip animation)
+    Skip,
+    /// Esc was pressed (open pause menu)
+    Esc,
+}
+
+/// Check if a key has been pressed (non-blocking), distinguishing Esc from other keys.
+fn check_keypress() -> AnimKeypress {
     if event::poll(Duration::from_millis(0)).unwrap_or(false) {
-        if let Ok(Event::Key(_)) = event::read() {
-            return true;
+        if let Ok(Event::Key(key)) = event::read() {
+            return match key.code {
+                KeyCode::Esc => AnimKeypress::Esc,
+                _ => AnimKeypress::Skip,
+            };
         }
     }
-    false
+    AnimKeypress::None
 }
 
 /// Show the animated "Elara is typing..." indicator
 /// The dots cycle: . .. ... and back
-/// Can be skipped by pressing any key
-pub fn show_typing_indicator(lang: Language) -> io::Result<()> {
+/// Can be skipped by pressing any key. Esc returns OpenMenu.
+pub fn show_typing_indicator(lang: Language) -> io::Result<MessageResult> {
     let mut stdout = io::stdout();
     let base_text = sys_msg(Msg::ElaraTyping, lang);
 
@@ -70,13 +91,20 @@ pub fn show_typing_indicator(lang: Language) -> io::Result<()> {
     let frames = total_ms / frame_ms;
 
     for i in 0..frames {
-        // Check for keypress to skip
-        if key_pressed() {
-            // Clear the typing indicator line
-            write!(stdout, "\r{}\r", " ".repeat(base_text.len() + 10))?;
-            stdout.flush()?;
-            terminal::disable_raw_mode()?;
-            return Ok(());
+        match check_keypress() {
+            AnimKeypress::Esc => {
+                write!(stdout, "\r{}\r", " ".repeat(base_text.len() + 10))?;
+                stdout.flush()?;
+                terminal::disable_raw_mode()?;
+                return Ok(MessageResult::OpenMenu);
+            }
+            AnimKeypress::Skip => {
+                write!(stdout, "\r{}\r", " ".repeat(base_text.len() + 10))?;
+                stdout.flush()?;
+                terminal::disable_raw_mode()?;
+                return Ok(MessageResult::Done);
+            }
+            AnimKeypress::None => {}
         }
 
         let dots = ".".repeat((i as usize % 3) + 1);
@@ -97,12 +125,12 @@ pub fn show_typing_indicator(lang: Language) -> io::Result<()> {
     stdout.flush()?;
 
     terminal::disable_raw_mode()?;
-    Ok(())
+    Ok(MessageResult::Done)
 }
 
-/// Print Elara's message with typewriter effect: characters appear one by one
-/// Can be skipped by pressing any key (remaining text appears instantly)
-pub fn print_elara_message_animated(text: &str) -> io::Result<()> {
+/// Print Elara's message with typewriter effect: characters appear one by one.
+/// Can be skipped by pressing any key. Esc returns OpenMenu.
+pub fn print_elara_message_animated(text: &str) -> io::Result<MessageResult> {
     let mut stdout = io::stdout();
     let prefix = "  Elara: ";
 
@@ -117,20 +145,27 @@ pub fn print_elara_message_animated(text: &str) -> io::Result<()> {
     stdout.flush()?;
 
     let mut skipped = false;
-    let mut col = prefix.len();
+    let mut esc_pressed = false;
 
     for ch in text.chars() {
-        if !skipped && key_pressed() {
-            skipped = true;
+        if !skipped {
+            match check_keypress() {
+                AnimKeypress::Esc => {
+                    skipped = true;
+                    esc_pressed = true;
+                }
+                AnimKeypress::Skip => {
+                    skipped = true;
+                }
+                AnimKeypress::None => {}
+            }
         }
 
         if ch == '\n' {
             writeln!(stdout)?;
             write!(stdout, "         ")?; // indent continuation
-            col = 9;
         } else {
             write!(stdout, "{}", ch.to_string().with(Color::Cyan))?;
-            col += 1;
         }
         stdout.flush()?;
 
@@ -143,8 +178,11 @@ pub fn print_elara_message_animated(text: &str) -> io::Result<()> {
 
     terminal::disable_raw_mode()?;
 
-    let _ = col; // suppress unused warning
-    Ok(())
+    if esc_pressed {
+        Ok(MessageResult::OpenMenu)
+    } else {
+        Ok(MessageResult::Done)
+    }
 }
 
 /// Print Elara's message without animation (for backlog replay)
@@ -164,13 +202,19 @@ pub fn print_elara_message(text: &str) -> io::Result<()> {
     Ok(())
 }
 
-/// Show typing indicator then print message with typewriter effect
-pub fn elara_says(text: &str, lang: Language) -> io::Result<()> {
-    show_typing_indicator(lang)?;
-    print_elara_message_animated(text)?;
+/// Show typing indicator then print message with typewriter effect.
+/// Returns `MessageResult::OpenMenu` if Esc was pressed at any point.
+pub fn elara_says(text: &str, lang: Language) -> io::Result<MessageResult> {
+    if matches!(show_typing_indicator(lang)?, MessageResult::OpenMenu) {
+        // Esc during typing indicator — still print the full message instantly,
+        // then signal the menu
+        print_elara_message(text)?;
+        return Ok(MessageResult::OpenMenu);
+    }
+    let result = print_elara_message_animated(text)?;
     // Small pause after message for readability
     thread::sleep(Duration::from_millis(300));
-    Ok(())
+    Ok(result)
 }
 
 /// Print a player choice (after selection): right-aligned, green
@@ -231,7 +275,7 @@ pub fn print_system_message_animated(text: &str) -> io::Result<()> {
         write!(stdout, "{}", " ".repeat(padding))?;
 
         for ch in line.chars() {
-            if !skipped && key_pressed() {
+            if !skipped && !matches!(check_keypress(), AnimKeypress::None) {
                 skipped = true;
             }
             write!(stdout, "{}", ch.to_string().with(Color::DarkGrey))?;

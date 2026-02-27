@@ -218,9 +218,9 @@ fn game_loop(state: &mut GameState, story: &HashMap<String, StoryNode>) -> io::R
         let lang = state.language;
 
         // Display all messages for this node
-        for msg in &node.messages {
+        for (msg_idx, msg) in node.messages.iter().enumerate() {
             let text = msg.get(lang);
-            ui::elara_says(text, lang)?;
+            let result = ui::elara_says(text, lang)?;
 
             // Log the message
             state.message_log.push(LogEntry {
@@ -228,6 +228,30 @@ fn game_loop(state: &mut GameState, story: &HashMap<String, StoryNode>) -> io::R
                 text: text.to_string(),
                 timestamp: Utc::now(),
             });
+
+            // If Esc was pressed during animation, handle the pause menu
+            if matches!(result, ui::MessageResult::OpenMenu) {
+                match handle_pause_menu(state)? {
+                    PauseMenuResult::Resume => {
+                        // Print remaining messages instantly (no animation)
+                        // since the player already saw the current one finish
+                        let lang = state.language; // may have changed
+                        for remaining_msg in &node.messages[msg_idx + 1..] {
+                            let t = remaining_msg.get(lang);
+                            ui::print_elara_message(t)?;
+                            state.message_log.push(LogEntry {
+                                sender: Sender::Elara,
+                                text: t.to_string(),
+                                timestamp: Utc::now(),
+                            });
+                        }
+                        break;
+                    }
+                    PauseMenuResult::Quit => {
+                        return Ok(());
+                    }
+                }
+            }
         }
 
         // Save after displaying messages
