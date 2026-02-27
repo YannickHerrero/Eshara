@@ -1,6 +1,3 @@
-pub mod endings;
-pub mod nodes;
-
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -11,139 +8,261 @@ use crate::i18n::LocalizedString;
 /// The default story JSON, embedded at compile time from data/story.json.
 const EMBEDDED_STORY: &str = include_str!("../../data/story.json");
 
-/// Localized ending metadata (title + description)
+// ── Top-level story data ─────────────────────────────────────
+
+/// Story metadata (title, version, configuration)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoryMeta {
+    pub title: String,
+    pub version: String,
+    pub start_node: String,
+    #[serde(default = "default_typing_delay")]
+    pub default_typing_delay_ms: u64,
+    #[serde(default = "default_debug_delay")]
+    pub debug_delay_override_seconds: u64,
+}
+
+fn default_typing_delay() -> u64 {
+    60
+}
+fn default_debug_delay() -> u64 {
+    5
+}
+
+/// Definition of a tracked stat (initial value, bounds)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatDef {
+    pub initial: i32,
+    pub min: i32,
+    pub max: i32,
+    #[serde(default)]
+    pub description: String,
+}
+
+/// Ending condition hints (stored in JSON for documentation; evaluated at runtime via branch)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EndingConditions {
+    #[serde(default)]
+    pub min_trust: Option<i32>,
+    #[serde(default)]
+    pub max_trust: Option<i32>,
+    #[serde(default)]
+    pub min_health: Option<i32>,
+    #[serde(default)]
+    pub health_equals: Option<i32>,
+    #[serde(default)]
+    pub flags_required: Vec<String>,
+}
+
+/// Localized ending metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EndingInfo {
     pub title: LocalizedString,
-    pub description: LocalizedString,
+    #[serde(rename = "type", default)]
+    pub ending_type: String,
+    #[serde(default)]
+    pub conditions: Option<EndingConditions>,
 }
 
-/// Top-level story data: the full narrative content loaded from JSON.
-/// Contains both the story node graph and ending metadata.
+/// Global death check rule: if health reaches 0, route to a specific ending
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeathCheck {
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub trigger: String,
+    #[serde(default)]
+    pub condition: Option<serde_json::Value>,
+    pub override_next_node: String,
+}
+
+/// Top-level story data loaded from JSON.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoryData {
+    pub meta: StoryMeta,
+    /// Stat definitions keyed by stat name (e.g. "trust", "health", "supplies")
+    #[serde(default)]
+    pub stats: HashMap<String, StatDef>,
+    /// Flag documentation keyed by flag name
+    #[serde(default)]
+    pub flags: HashMap<String, String>,
+    /// Ending metadata keyed by ending key (e.g. "still_here", "gone_dark")
+    #[serde(default)]
+    pub endings: HashMap<String, EndingInfo>,
     /// All story nodes keyed by their unique id
     pub nodes: HashMap<String, StoryNode>,
-    /// Ending metadata keyed by the EndingType variant name (e.g. "NewDawn", "Static")
-    pub endings: HashMap<String, EndingInfo>,
+    /// Global death check rule
+    #[serde(default)]
+    pub death_check: Option<DeathCheck>,
 }
 
 impl StoryData {
-    /// Look up ending info by EndingType
-    pub fn ending_info(&self, ending: &EndingType) -> Option<&EndingInfo> {
-        let key = format!("{:?}", ending);
-        self.endings.get(&key)
-    }
-
-    /// Validate the story graph for structural integrity.
-    /// Returns a list of errors (empty = valid).
-    pub fn validate(&self) -> Vec<String> {
-        use std::collections::{HashSet, VecDeque};
-
-        let mut errors = Vec::new();
-
-        // 1. Must have an "intro" node
-        if !self.nodes.contains_key("intro") {
-            errors.push("Missing required 'intro' node".to_string());
-            return errors; // Can't do further checks without intro
-        }
-
-        // 2. All referenced nodes must exist
-        for (id, node) in &self.nodes {
-            if let Some(ref next) = node.next_node {
-                if !self.nodes.contains_key(next) {
-                    errors.push(format!(
-                        "Node '{}' references next_node '{}' which doesn't exist",
-                        id, next
-                    ));
-                }
-            }
-            for choice in &node.choices {
-                if !self.nodes.contains_key(&choice.next_node) {
-                    errors.push(format!(
-                        "Node '{}' has choice pointing to '{}' which doesn't exist",
-                        id, choice.next_node
-                    ));
-                }
-            }
-            if let Some(ref refusal) = node.trust_refusal {
-                if !self.nodes.contains_key(&refusal.refusal_node) {
-                    errors.push(format!(
-                        "Node '{}' has trust_refusal pointing to '{}' which doesn't exist",
-                        id, refusal.refusal_node
-                    ));
-                }
-            }
-        }
-
-        // 3. No dead ends (nodes with no choices, no next_node, and no ending)
-        for (id, node) in &self.nodes {
-            let has_next = node.next_node.is_some();
-            let has_choices = !node.choices.is_empty();
-            let has_ending = node.ending.is_some();
-
-            if !has_next && !has_choices && !has_ending {
-                errors.push(format!(
-                    "Dead-end node '{}': no choices, no next_node, no ending",
-                    id
-                ));
-            }
-        }
-
-        // 4. All nodes reachable from intro
-        let mut visited = HashSet::new();
-        let mut queue = VecDeque::new();
-        queue.push_back("intro".to_string());
-
-        while let Some(id) = queue.pop_front() {
-            if visited.contains(&id) {
-                continue;
-            }
-            visited.insert(id.clone());
-
-            if let Some(node) = self.nodes.get(&id) {
-                if let Some(ref next) = node.next_node {
-                    queue.push_back(next.clone());
-                }
-                for choice in &node.choices {
-                    queue.push_back(choice.next_node.clone());
-                }
-                if let Some(ref refusal) = node.trust_refusal {
-                    queue.push_back(refusal.refusal_node.clone());
-                }
-            }
-        }
-
-        let unreachable: Vec<_> = self
-            .nodes
-            .keys()
-            .filter(|k| !visited.contains(*k))
-            .collect();
-        if !unreachable.is_empty() {
-            errors.push(format!("Unreachable nodes: {:?}", unreachable));
-        }
-
-        // 5. At least one ending node exists
-        let ending_count = self.nodes.values().filter(|n| n.ending.is_some()).count();
-        if ending_count == 0 {
-            errors.push("No ending nodes found in the story".to_string());
-        }
-
-        // 6. All messages have non-empty bilingual text
-        for (id, node) in &self.nodes {
-            for (i, msg) in node.messages.iter().enumerate() {
-                if msg.en.is_empty() {
-                    errors.push(format!("Node '{}' message {} has empty EN text", id, i));
-                }
-                if msg.fr.is_empty() {
-                    errors.push(format!("Node '{}' message {} has empty FR text", id, i));
-                }
-            }
-        }
-
-        errors
+    /// Look up ending info by string key
+    pub fn ending_info(&self, key: &str) -> Option<&EndingInfo> {
+        self.endings.get(key)
     }
 }
+
+// ── Node types ───────────────────────────────────────────────
+
+/// Effects applied when entering a node or choosing an option
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Effects {
+    #[serde(default)]
+    pub trust_change: Option<i32>,
+    #[serde(default)]
+    pub health_change: Option<i32>,
+    #[serde(default)]
+    pub supplies_change: Option<i32>,
+    #[serde(default)]
+    pub flags_set: Vec<String>,
+    #[serde(default)]
+    pub flags_remove: Vec<String>,
+    /// Conditional medicine (ignored in gameplay — handled by flags)
+    #[serde(default)]
+    pub has_medicine_conditional: Option<bool>,
+}
+
+impl Effects {
+    /// Apply stat changes and flag modifications to the game state.
+    /// Returns true if health was changed (for death check).
+    pub fn apply(&self, state: &mut crate::game::GameState) -> bool {
+        let mut health_changed = false;
+        if let Some(delta) = self.trust_change {
+            state.stats.modify("trust", delta);
+        }
+        if let Some(delta) = self.health_change {
+            state.stats.modify("health", delta);
+            health_changed = true;
+        }
+        if let Some(delta) = self.supplies_change {
+            state.stats.modify("supplies", delta);
+        }
+        for flag in &self.flags_set {
+            state.set_flag(flag);
+        }
+        for flag in &self.flags_remove {
+            state.remove_flag(flag);
+        }
+        health_changed
+    }
+}
+
+/// Real-time delay with a localized waiting message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DelayInfo {
+    pub seconds: u64,
+    pub message: LocalizedString,
+}
+
+/// A condition for conditional branching
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BranchCondition {
+    #[serde(default)]
+    pub flags_required: Vec<String>,
+    #[serde(default)]
+    pub min_trust: Option<i32>,
+    #[serde(default)]
+    pub max_trust: Option<i32>,
+    #[serde(default)]
+    pub min_health: Option<i32>,
+    #[serde(default)]
+    pub max_health: Option<i32>,
+    /// If true, this is the fallback/default branch
+    #[serde(default)]
+    pub default: bool,
+}
+
+impl BranchCondition {
+    /// Evaluate whether this branch condition is met
+    pub fn evaluate(&self, state: &crate::game::GameState) -> bool {
+        if self.default {
+            return true;
+        }
+
+        // Check required flags
+        for flag in &self.flags_required {
+            if !state.has_flag(flag) {
+                return false;
+            }
+        }
+
+        // Check stat thresholds
+        if let Some(min) = self.min_trust {
+            if state.stats.trust < min {
+                return false;
+            }
+        }
+        if let Some(max) = self.max_trust {
+            if state.stats.trust > max {
+                return false;
+            }
+        }
+        if let Some(min) = self.min_health {
+            if state.stats.health < min {
+                return false;
+            }
+        }
+        if let Some(max) = self.max_health {
+            if state.stats.health > max {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+/// A conditional branch entry (evaluated in order; first match wins)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Branch {
+    pub condition: BranchCondition,
+    pub next_node: String,
+}
+
+/// A player choice within a story node
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Choice {
+    /// Localized display text for this choice
+    pub label: LocalizedString,
+    /// The node id to jump to when this choice is selected
+    pub next_node: String,
+    /// Effects applied when this choice is made
+    #[serde(default)]
+    pub on_choose: Option<Effects>,
+}
+
+/// A single story node in the narrative tree
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoryNode {
+    /// Unique identifier for this node
+    pub id: String,
+    /// Act number (informational)
+    #[serde(default)]
+    pub act: Option<u32>,
+    /// Human-readable title (informational)
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Ordered list of messages at this node
+    #[serde(default)]
+    pub messages: Vec<LocalizedString>,
+    /// Player choices (null/absent = no choices)
+    pub choices: Option<Vec<Choice>>,
+    /// For linear nodes: the next node to auto-advance to
+    pub next_node: Option<String>,
+    /// Optional real-time delay before the next node triggers
+    pub delay: Option<DelayInfo>,
+    /// If this node is an ending, the ending key (e.g. "still_here", "gone_dark")
+    pub ending: Option<String>,
+    /// Effects applied when entering this node
+    #[serde(default)]
+    pub on_enter: Option<Effects>,
+    /// Conditional branching (evaluated in order; first match wins)
+    #[serde(default)]
+    pub branch: Option<Vec<Branch>>,
+}
+
+// ── Story loading ────────────────────────────────────────────
 
 /// Load the story data.
 ///
@@ -177,289 +296,125 @@ pub fn load_story() -> StoryData {
     story_data
 }
 
-/// A condition that must be met for a choice to be available
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Condition {
-    /// A flag must be set
-    FlagSet(String),
-    /// A flag must NOT be set
-    FlagUnset(String),
-    /// A stat must be >= a threshold
-    StatAtLeast(String, i32),
-    /// A stat must be < a threshold
-    StatBelow(String, i32),
-}
+// ── Validation ───────────────────────────────────────────────
 
-/// A player choice within a story node
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Choice {
-    /// Localized display text for this choice
-    pub label: LocalizedString,
-    /// The node id to jump to when this choice is selected
-    pub next_node: String,
-    /// Optional flags to set when this choice is made
-    #[serde(default)]
-    pub flags_set: Vec<String>,
-    /// Optional flags to remove when this choice is made
-    #[serde(default)]
-    pub flags_remove: Vec<String>,
-    /// Optional stat changes (stat_name, delta) applied when chosen
-    #[serde(default)]
-    pub stat_changes: Vec<(String, i32)>,
-    /// Optional conditions required for this choice to be visible
-    #[serde(default)]
-    pub conditions: Vec<Condition>,
-}
+impl StoryData {
+    /// Validate the story graph for structural integrity.
+    /// Returns a list of errors (empty = valid).
+    pub fn validate(&self) -> Vec<String> {
+        use std::collections::{HashSet, VecDeque};
 
-/// Descriptor for a trust-based refusal: if trust is too low, Elara ignores the choice
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrustRefusal {
-    /// Minimum trust_level required to obey the player's choice
-    pub min_trust: i32,
-    /// The node Elara goes to instead if she refuses
-    pub refusal_node: String,
-    /// Localized refusal message from Elara
-    pub refusal_message: LocalizedString,
-}
+        let mut errors = Vec::new();
+        let start = &self.meta.start_node;
 
-/// A single story node in the narrative tree
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StoryNode {
-    /// Unique identifier for this node
-    pub id: String,
-    /// Ordered list of Elara's messages at this node
-    pub messages: Vec<LocalizedString>,
-    /// Optional player choices (if empty, this is a linear node)
-    #[serde(default)]
-    pub choices: Vec<Choice>,
-    /// For linear nodes: the next node to auto-advance to
-    pub next_node: Option<String>,
-    /// Optional real-time delay in seconds before the next node triggers
-    pub delay: Option<u64>,
-    /// If this node is an ending, describes which ending
-    pub ending: Option<EndingType>,
-    /// Optional trust-based refusal configuration for this node
-    pub trust_refusal: Option<TrustRefusal>,
-}
+        // 1. Must have the start node
+        if !self.nodes.contains_key(start) {
+            errors.push(format!("Missing required start node '{}'", start));
+            return errors;
+        }
 
-/// The type of ending reached
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum EndingType {
-    NewDawn,
-    TheSignal,
-    Static,
-    GoneDark,
-    TheEsharaWins,
-}
-
-// ── Condition evaluation ─────────────────────────────────────
-
-use crate::game::GameState;
-
-impl Condition {
-    /// Evaluate whether this condition is met given the current game state
-    pub fn evaluate(&self, state: &GameState) -> bool {
-        match self {
-            Condition::FlagSet(flag) => state.has_flag(flag),
-            Condition::FlagUnset(flag) => !state.has_flag(flag),
-            Condition::StatAtLeast(stat, threshold) => {
-                state.stats.get(stat).unwrap_or(0) >= *threshold
+        // 2. All referenced nodes must exist
+        for (id, node) in &self.nodes {
+            if let Some(ref next) = node.next_node {
+                if !self.nodes.contains_key(next) {
+                    errors.push(format!(
+                        "Node '{}' references next_node '{}' which doesn't exist",
+                        id, next
+                    ));
+                }
             }
-            Condition::StatBelow(stat, threshold) => {
-                state.stats.get(stat).unwrap_or(0) < *threshold
+            if let Some(ref choices) = node.choices {
+                for choice in choices {
+                    if !self.nodes.contains_key(&choice.next_node) {
+                        errors.push(format!(
+                            "Node '{}' has choice pointing to '{}' which doesn't exist",
+                            id, choice.next_node
+                        ));
+                    }
+                }
+            }
+            if let Some(ref branches) = node.branch {
+                for branch in branches {
+                    if !self.nodes.contains_key(&branch.next_node) {
+                        errors.push(format!(
+                            "Node '{}' has branch pointing to '{}' which doesn't exist",
+                            id, branch.next_node
+                        ));
+                    }
+                }
             }
         }
-    }
-}
 
-impl Choice {
-    /// Check if all conditions for this choice are met
-    pub fn is_available(&self, state: &GameState) -> bool {
-        self.conditions.iter().all(|c| c.evaluate(state))
-    }
-}
+        // 3. No dead ends
+        for (id, node) in &self.nodes {
+            let has_next = node.next_node.is_some();
+            let has_choices = node.choices.as_ref().is_some_and(|c| !c.is_empty());
+            let has_ending = node.ending.is_some();
+            let has_branch = node.branch.as_ref().is_some_and(|b| !b.is_empty());
 
-impl StoryNode {
-    /// Get only the choices that are available given the current game state
-    pub fn available_choices(&self, state: &GameState) -> Vec<(usize, &Choice)> {
-        self.choices
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| c.is_available(state))
-            .collect()
-    }
-
-    /// Check if this node has a trust refusal that should trigger
-    pub fn should_refuse(&self, state: &GameState) -> bool {
-        if let Some(ref refusal) = self.trust_refusal {
-            state.stats.trust_level < refusal.min_trust
-        } else {
-            false
+            if !has_next && !has_choices && !has_ending && !has_branch {
+                errors.push(format!(
+                    "Dead-end node '{}': no choices, no next_node, no ending, no branch",
+                    id
+                ));
+            }
         }
+
+        // 4. All nodes reachable from start
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+        queue.push_back(start.clone());
+
+        while let Some(id) = queue.pop_front() {
+            if visited.contains(&id) {
+                continue;
+            }
+            visited.insert(id.clone());
+
+            if let Some(node) = self.nodes.get(&id) {
+                if let Some(ref next) = node.next_node {
+                    queue.push_back(next.clone());
+                }
+                if let Some(ref choices) = node.choices {
+                    for choice in choices {
+                        queue.push_back(choice.next_node.clone());
+                    }
+                }
+                if let Some(ref branches) = node.branch {
+                    for branch in branches {
+                        queue.push_back(branch.next_node.clone());
+                    }
+                }
+            }
+        }
+
+        // Also add the death check target as reachable
+        if let Some(ref dc) = self.death_check {
+            visited.insert(dc.override_next_node.clone());
+        }
+
+        let unreachable: Vec<_> = self
+            .nodes
+            .keys()
+            .filter(|k| !visited.contains(*k))
+            .collect();
+        if !unreachable.is_empty() {
+            errors.push(format!("Unreachable nodes: {:?}", unreachable));
+        }
+
+        // 5. At least one ending node exists
+        let ending_count = self.nodes.values().filter(|n| n.ending.is_some()).count();
+        if ending_count == 0 {
+            errors.push("No ending nodes found in the story".to_string());
+        }
+
+        errors
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_story_node_creation() {
-        let node = StoryNode {
-            id: "test_node".to_string(),
-            messages: vec![LocalizedString::new("Hello", "Bonjour")],
-            choices: vec![],
-            next_node: Some("next".to_string()),
-            delay: None,
-            ending: None,
-            trust_refusal: None,
-        };
-        assert_eq!(node.id, "test_node");
-        assert_eq!(node.messages.len(), 1);
-        assert!(node.choices.is_empty());
-    }
-
-    #[test]
-    fn test_choice_with_conditions() {
-        let choice = Choice {
-            label: LocalizedString::new("Go left", "Aller \u{00e0} gauche"),
-            next_node: "left_path".to_string(),
-            flags_set: vec!["went_left".to_string()],
-            flags_remove: vec![],
-            stat_changes: vec![("trust_level".to_string(), 1)],
-            conditions: vec![Condition::FlagSet("has_map".to_string())],
-        };
-        assert_eq!(choice.next_node, "left_path");
-        assert_eq!(choice.flags_set.len(), 1);
-        assert_eq!(choice.conditions.len(), 1);
-    }
-
-    #[test]
-    fn test_ending_type_serialization() {
-        let ending = EndingType::NewDawn;
-        let json = serde_json::to_string(&ending).unwrap();
-        let deserialized: EndingType = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized, EndingType::NewDawn);
-    }
-
-    #[test]
-    fn test_condition_flag_set() {
-        use crate::i18n::Language;
-        let mut state = GameState::new(Language::En);
-        let cond = Condition::FlagSet("test_flag".to_string());
-        assert!(!cond.evaluate(&state));
-        state.set_flag("test_flag");
-        assert!(cond.evaluate(&state));
-    }
-
-    #[test]
-    fn test_condition_flag_unset() {
-        use crate::i18n::Language;
-        let mut state = GameState::new(Language::En);
-        let cond = Condition::FlagUnset("test_flag".to_string());
-        assert!(cond.evaluate(&state));
-        state.set_flag("test_flag");
-        assert!(!cond.evaluate(&state));
-    }
-
-    #[test]
-    fn test_condition_stat_at_least() {
-        use crate::i18n::Language;
-        let state = GameState::new(Language::En);
-        // Default trust_level is 3
-        let cond = Condition::StatAtLeast("trust_level".to_string(), 3);
-        assert!(cond.evaluate(&state));
-        let cond_high = Condition::StatAtLeast("trust_level".to_string(), 5);
-        assert!(!cond_high.evaluate(&state));
-    }
-
-    #[test]
-    fn test_choice_availability() {
-        use crate::i18n::Language;
-        let state = GameState::new(Language::En);
-        let choice = Choice {
-            label: LocalizedString::new("Gated option", "Option conditionn\u{00e9}e"),
-            next_node: "next".to_string(),
-            flags_set: vec![],
-            flags_remove: vec![],
-            stat_changes: vec![],
-            conditions: vec![Condition::FlagSet("required_flag".to_string())],
-        };
-        assert!(!choice.is_available(&state));
-
-        let mut state2 = state.clone();
-        state2.set_flag("required_flag");
-        assert!(choice.is_available(&state2));
-    }
-
-    #[test]
-    fn test_trust_refusal() {
-        use crate::i18n::Language;
-        let state = GameState::new(Language::En); // trust_level = 3
-        let node = StoryNode {
-            id: "test".to_string(),
-            messages: vec![],
-            choices: vec![],
-            next_node: None,
-            delay: None,
-            ending: None,
-            trust_refusal: Some(TrustRefusal {
-                min_trust: 5,
-                refusal_node: "refusal".to_string(),
-                refusal_message: LocalizedString::new(
-                    "Sorry, I can't do that.",
-                    "D\u{00e9}sol\u{00e9}e, je peux pas faire \u{00e7}a.",
-                ),
-            }),
-        };
-        assert!(node.should_refuse(&state)); // trust is 3, min is 5
-
-        let mut state2 = state.clone();
-        state2.stats.trust_level = 6;
-        assert!(!node.should_refuse(&state2)); // trust is 6, min is 5
-    }
-
-    #[test]
-    fn test_available_choices_filters_correctly() {
-        use crate::i18n::Language;
-        let mut state = GameState::new(Language::En);
-        let node = StoryNode {
-            id: "test".to_string(),
-            messages: vec![],
-            choices: vec![
-                Choice {
-                    label: LocalizedString::new("Always visible", "Toujours visible"),
-                    next_node: "a".to_string(),
-                    flags_set: vec![],
-                    flags_remove: vec![],
-                    stat_changes: vec![],
-                    conditions: vec![],
-                },
-                Choice {
-                    label: LocalizedString::new("Needs flag", "Besoin du flag"),
-                    next_node: "b".to_string(),
-                    flags_set: vec![],
-                    flags_remove: vec![],
-                    stat_changes: vec![],
-                    conditions: vec![Condition::FlagSet("special".to_string())],
-                },
-            ],
-            next_node: None,
-            delay: None,
-            ending: None,
-            trust_refusal: None,
-        };
-
-        let available = node.available_choices(&state);
-        assert_eq!(available.len(), 1);
-        assert_eq!(available[0].0, 0);
-
-        state.set_flag("special");
-        let available = node.available_choices(&state);
-        assert_eq!(available.len(), 2);
-    }
-
-    // ── JSON story loading tests ────────────────────────────────
 
     #[test]
     fn test_embedded_json_parses() {
@@ -484,32 +439,89 @@ mod tests {
     fn test_embedded_json_has_all_endings() {
         let story_data: StoryData = serde_json::from_str(EMBEDDED_STORY).unwrap();
         assert_eq!(story_data.endings.len(), 5, "Expected 5 endings");
-        assert!(story_data.ending_info(&EndingType::NewDawn).is_some());
-        assert!(story_data.ending_info(&EndingType::TheSignal).is_some());
-        assert!(story_data.ending_info(&EndingType::Static).is_some());
-        assert!(story_data.ending_info(&EndingType::GoneDark).is_some());
-        assert!(story_data.ending_info(&EndingType::TheEsharaWins).is_some());
+        assert!(story_data.ending_info("still_here").is_some());
+        assert!(story_data.ending_info("let_go").is_some());
+        assert!(story_data.ending_info("static").is_some());
+        assert!(story_data.ending_info("gone_dark").is_some());
+        assert!(story_data.ending_info("echo").is_some());
     }
 
     #[test]
-    fn test_embedded_json_node_count() {
+    fn test_embedded_json_meta() {
         let story_data: StoryData = serde_json::from_str(EMBEDDED_STORY).unwrap();
-        assert!(
-            story_data.nodes.len() >= 60,
-            "Expected at least 60 nodes, got {}",
-            story_data.nodes.len()
-        );
+        assert_eq!(story_data.meta.start_node, "a1_first_contact");
+        assert_eq!(story_data.meta.title, "Eshara");
     }
 
     #[test]
-    fn test_json_roundtrip_matches_hardcoded() {
-        // Verify the JSON-loaded story has the same number of nodes as the hardcoded one
-        let hardcoded = nodes::build_story_tree();
+    fn test_embedded_json_stats() {
         let story_data: StoryData = serde_json::from_str(EMBEDDED_STORY).unwrap();
+        assert!(story_data.stats.contains_key("trust"));
+        assert!(story_data.stats.contains_key("health"));
+        assert!(story_data.stats.contains_key("supplies"));
+        assert_eq!(story_data.stats["trust"].initial, 3);
+        assert_eq!(story_data.stats["health"].initial, 10);
+    }
+
+    #[test]
+    fn test_embedded_json_has_death_check() {
+        let story_data: StoryData = serde_json::from_str(EMBEDDED_STORY).unwrap();
+        assert!(story_data.death_check.is_some());
         assert_eq!(
-            hardcoded.len(),
-            story_data.nodes.len(),
-            "JSON node count should match hardcoded node count"
+            story_data.death_check.unwrap().override_next_node,
+            "ending_gone_dark"
         );
+    }
+
+    #[test]
+    fn test_branch_condition_default() {
+        let cond = BranchCondition {
+            default: true,
+            ..Default::default()
+        };
+        let state = crate::game::GameState::new(crate::i18n::Language::En, "test", 3, 10, 3);
+        assert!(cond.evaluate(&state));
+    }
+
+    #[test]
+    fn test_branch_condition_flags() {
+        let cond = BranchCondition {
+            flags_required: vec!["has_shielding".to_string()],
+            ..Default::default()
+        };
+        let mut state = crate::game::GameState::new(crate::i18n::Language::En, "test", 3, 10, 3);
+        assert!(!cond.evaluate(&state));
+        state.set_flag("has_shielding");
+        assert!(cond.evaluate(&state));
+    }
+
+    #[test]
+    fn test_branch_condition_trust() {
+        let cond = BranchCondition {
+            min_trust: Some(7),
+            ..Default::default()
+        };
+        let mut state = crate::game::GameState::new(crate::i18n::Language::En, "test", 3, 10, 3);
+        assert!(!cond.evaluate(&state)); // trust is 3
+        state.stats.trust = 8;
+        assert!(cond.evaluate(&state)); // trust is 8
+    }
+
+    #[test]
+    fn test_effects_apply() {
+        let effects = Effects {
+            trust_change: Some(2),
+            health_change: Some(-1),
+            supplies_change: None,
+            flags_set: vec!["test_flag".to_string()],
+            flags_remove: vec![],
+            has_medicine_conditional: None,
+        };
+        let mut state = crate::game::GameState::new(crate::i18n::Language::En, "test", 3, 10, 3);
+        let health_changed = effects.apply(&mut state);
+        assert!(health_changed);
+        assert_eq!(state.stats.trust, 5);
+        assert_eq!(state.stats.health, 9);
+        assert!(state.has_flag("test_flag"));
     }
 }

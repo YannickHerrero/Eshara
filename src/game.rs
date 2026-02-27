@@ -7,7 +7,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::i18n::Language;
-use crate::story::EndingType;
 
 /// A single entry in the message log
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,43 +30,48 @@ pub enum Sender {
 /// Tracked stats that affect story gates
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stats {
-    pub trust_level: i32,
+    pub trust: i32,
     pub health: i32,
     pub supplies: i32,
-    pub morale: i32,
+}
+
+impl Stats {
+    /// Create stats with specified initial values
+    pub fn new(trust: i32, health: i32, supplies: i32) -> Self {
+        Self {
+            trust,
+            health,
+            supplies,
+        }
+    }
+
+    /// Get a stat value by name
+    pub fn get(&self, name: &str) -> Option<i32> {
+        match name {
+            "trust" => Some(self.trust),
+            "health" => Some(self.health),
+            "supplies" => Some(self.supplies),
+            _ => None,
+        }
+    }
+
+    /// Modify a stat by name with a delta (clamped to 0..=10)
+    pub fn modify(&mut self, name: &str, delta: i32) {
+        match name {
+            "trust" => self.trust = (self.trust + delta).max(0).min(10),
+            "health" => self.health = (self.health + delta).max(0).min(10),
+            "supplies" => self.supplies = (self.supplies + delta).max(0).min(10),
+            _ => {}
+        }
+    }
 }
 
 impl Default for Stats {
     fn default() -> Self {
         Self {
-            trust_level: 3,
+            trust: 3,
             health: 10,
-            supplies: 5,
-            morale: 5,
-        }
-    }
-}
-
-impl Stats {
-    /// Get a stat value by name
-    pub fn get(&self, name: &str) -> Option<i32> {
-        match name {
-            "trust_level" => Some(self.trust_level),
-            "health" => Some(self.health),
-            "supplies" => Some(self.supplies),
-            "morale" => Some(self.morale),
-            _ => None,
-        }
-    }
-
-    /// Modify a stat by name with a delta
-    pub fn modify(&mut self, name: &str, delta: i32) {
-        match name {
-            "trust_level" => self.trust_level = (self.trust_level + delta).max(0).min(10),
-            "health" => self.health = (self.health + delta).max(0).min(10),
-            "supplies" => self.supplies = (self.supplies + delta).max(0).min(10),
-            "morale" => self.morale = (self.morale + delta).max(0).min(10),
-            _ => {}
+            supplies: 3,
         }
     }
 }
@@ -87,25 +91,39 @@ pub struct GameState {
     pub message_log: Vec<LogEntry>,
     /// Tracked gameplay stats
     pub stats: Stats,
-    /// Which ending was reached, if any
-    pub ending: Option<EndingType>,
+    /// Which ending was reached, if any (string key e.g. "still_here", "gone_dark")
+    pub ending: Option<String>,
     /// The game day (narrative day tracker)
     pub day: u32,
 }
 
 impl GameState {
     /// Create a new game state for a fresh game
-    pub fn new(language: Language) -> Self {
+    pub fn new(
+        language: Language,
+        start_node: &str,
+        trust: i32,
+        health: i32,
+        supplies: i32,
+    ) -> Self {
         Self {
-            current_node: "intro".to_string(),
+            current_node: start_node.to_string(),
             flags: HashMap::new(),
             language,
             waiting_until: None,
             message_log: Vec::new(),
-            stats: Stats::default(),
+            stats: Stats::new(trust, health, supplies),
             ending: None,
             day: 1,
         }
+    }
+
+    /// Create a new game state initialized from StoryData
+    pub fn from_story(language: Language, story: &crate::story::StoryData) -> Self {
+        let trust = story.stats.get("trust").map(|s| s.initial).unwrap_or(3);
+        let health = story.stats.get("health").map(|s| s.initial).unwrap_or(10);
+        let supplies = story.stats.get("supplies").map(|s| s.initial).unwrap_or(3);
+        Self::new(language, &story.meta.start_node, trust, health, supplies)
     }
 
     /// Check if a flag is set
@@ -216,19 +234,21 @@ mod tests {
 
     #[test]
     fn test_new_game_state() {
-        let state = GameState::new(Language::En);
-        assert_eq!(state.current_node, "intro");
+        let state = GameState::new(Language::En, "a1_first_contact", 3, 10, 3);
+        assert_eq!(state.current_node, "a1_first_contact");
         assert_eq!(state.language, Language::En);
         assert!(state.flags.is_empty());
         assert!(state.waiting_until.is_none());
         assert!(state.message_log.is_empty());
-        assert_eq!(state.stats.trust_level, 3);
+        assert_eq!(state.stats.trust, 3);
+        assert_eq!(state.stats.health, 10);
+        assert_eq!(state.stats.supplies, 3);
         assert_eq!(state.day, 1);
     }
 
     #[test]
     fn test_flags() {
-        let mut state = GameState::new(Language::Fr);
+        let mut state = GameState::new(Language::Fr, "test", 3, 10, 3);
         assert!(!state.has_flag("test_flag"));
         state.set_flag("test_flag");
         assert!(state.has_flag("test_flag"));
@@ -239,41 +259,39 @@ mod tests {
     #[test]
     fn test_stats_modify() {
         let mut stats = Stats::default();
-        stats.modify("trust_level", 2);
-        assert_eq!(stats.trust_level, 5);
-        stats.modify("trust_level", -10);
-        assert_eq!(stats.trust_level, 0); // Clamped to 0
+        stats.modify("trust", 2);
+        assert_eq!(stats.trust, 5);
+        stats.modify("trust", -10);
+        assert_eq!(stats.trust, 0); // Clamped to 0
         stats.modify("health", 100);
         assert_eq!(stats.health, 10); // Clamped to 10
     }
 
     #[test]
     fn test_game_state_serialization() {
-        let state = GameState::new(Language::En);
+        let state = GameState::new(Language::En, "a1_first_contact", 3, 10, 3);
         let json = serde_json::to_string(&state).unwrap();
         let deserialized: GameState = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.current_node, "intro");
+        assert_eq!(deserialized.current_node, "a1_first_contact");
         assert_eq!(deserialized.language, Language::En);
     }
 
     #[test]
     fn test_save_and_load_roundtrip() {
-        // Use a temp dir to avoid polluting the real save location
         let tmp = std::env::temp_dir().join("eshara_test_save");
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
         let save_file = tmp.join("save.json");
 
-        let state = GameState::new(Language::Fr);
+        let state = GameState::new(Language::Fr, "a1_first_contact", 3, 10, 3);
         let json = serde_json::to_string_pretty(&state).unwrap();
         fs::write(&save_file, &json).unwrap();
 
         let loaded_json = fs::read_to_string(&save_file).unwrap();
         let loaded: GameState = serde_json::from_str(&loaded_json).unwrap();
-        assert_eq!(loaded.current_node, "intro");
+        assert_eq!(loaded.current_node, "a1_first_contact");
         assert_eq!(loaded.language, Language::Fr);
 
-        // Cleanup
         let _ = fs::remove_dir_all(&tmp);
     }
 

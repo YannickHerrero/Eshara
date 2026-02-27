@@ -13,6 +13,3 @@ chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
 ctrlc = "3"
 
-[[bin]]
-name = "export-story"
-path = "src/bin/export_story.rs"

@@ -72,7 +72,7 @@ fn run() -> io::Result<()> {
         } else {
             // Corrupted save — start fresh
             let lang = args.language.unwrap_or(Language::En);
-            let state = GameState::new(lang);
+            let state = GameState::from_story(lang, &story_data);
             let opts = vec![
                 sys_msg(Msg::LanguageOption1, Language::En).to_string(),
                 sys_msg(Msg::LanguageOption2, Language::En).to_string(),
@@ -82,7 +82,7 @@ fn run() -> io::Result<()> {
     } else {
         // No save — new game
         let lang = args.language.unwrap_or(Language::En);
-        let state = GameState::new(lang);
+        let state = GameState::from_story(lang, &story_data);
         let opts = vec![
             sys_msg(Msg::LanguageOption1, Language::En).to_string(),
             sys_msg(Msg::LanguageOption2, Language::En).to_string(),

@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn test_schedule_wait() {
-        let mut state = GameState::new(Language::En);
+        let mut state = GameState::new(Language::En, "test", 3, 10, 3);
         assert!(state.waiting_until.is_none());
         schedule_wait(&mut state, 60);
         assert!(state.waiting_until.is_some());
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_is_waiting() {
-        let mut state = GameState::new(Language::En);
+        let mut state = GameState::new(Language::En, "test", 3, 10, 3);
         assert!(!is_waiting(&state));
         schedule_wait(&mut state, 3600); // 1 hour from now
         assert!(is_waiting(&state));

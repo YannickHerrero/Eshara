@@ -18,7 +18,7 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
 
 use crate::game::{save_game, GameState, LogEntry, Sender};
 use crate::i18n::{sys_msg, Language, Msg};
-use crate::story::{self, EndingType, StoryData};
+use crate::story::{Choice, StoryData};
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -195,8 +195,8 @@ pub struct App {
     pub intro_typewriter: Option<TypewriterState>,
     /// Post-message pause timer (small delay after a message finishes).
     pub post_message_pause: Option<Instant>,
-    /// Ending type reached (for the ending screen).
-    pub ending_reached: Option<EndingType>,
+    /// Ending key reached (for the ending screen), e.g. "still_here", "gone_dark".
+    pub ending_reached: Option<String>,
     /// Wait screen info.
     pub wait_message: Option<String>,
 }
@@ -249,7 +249,7 @@ impl App {
         }
     }
 
-    /// Process the current story node: queue its messages and prepare choices.
+    /// Process the current story node: apply on_enter effects, queue messages, prepare choices.
     pub fn process_current_node(&mut self) {
         self.advance_story = false;
 
@@ -265,6 +265,15 @@ impl App {
             }
         };
 
+        // Apply on_enter effects (stat changes, flags)
+        if let Some(ref effects) = node.on_enter {
+            let health_changed = effects.apply(&mut self.game_state);
+            // Death check: if health dropped to 0, redirect to death node
+            if health_changed && self.check_death() {
+                return;
+            }
+        }
+
         let lang = self.lang();
 
         // Queue all messages for typewriter display
@@ -275,6 +284,20 @@ impl App {
 
         // Start the first message
         self.start_next_message();
+    }
+
+    /// Check if the player is dead (health <= 0) and redirect to death node if so.
+    /// Returns true if death was triggered.
+    fn check_death(&mut self) -> bool {
+        if self.game_state.stats.health <= 0 {
+            if let Some(ref dc) = self.story_data.death_check {
+                self.game_state.current_node = dc.override_next_node.clone();
+                let _ = save_game(&self.game_state);
+                self.advance_story = true;
+                return true;
+            }
+        }
+        false
     }
 
     /// Pop the next message from the queue and start its typewriter animation.
@@ -298,11 +321,11 @@ impl App {
 
         let lang = self.lang();
 
-        // Check for ending
-        if node.ending.is_some() {
-            self.game_state.ending = node.ending.clone();
+        // 1. Check for ending
+        if let Some(ref ending_key) = node.ending {
+            self.game_state.ending = Some(ending_key.clone());
             let _ = save_game(&self.game_state);
-            self.ending_reached = node.ending;
+            self.ending_reached = Some(ending_key.clone());
             self.screen = Screen::Ending;
             self.prompt_options = vec![
                 sys_msg(Msg::YesOption, lang).to_string(),
@@ -312,10 +335,18 @@ impl App {
             return;
         }
 
-        // Handle real-time delay
-        if let Some(delay_secs) = node.delay {
-            let next = if !node.choices.is_empty() {
-                node.choices[0].next_node.clone()
+        // 2. Handle real-time delay
+        if let Some(ref delay_info) = node.delay {
+            // Determine which node to advance to after the delay
+            let next = if let Some(ref choices) = node.choices {
+                if !choices.is_empty() {
+                    choices[0].next_node.clone()
+                } else if let Some(ref next) = node.next_node {
+                    next.clone()
+                } else {
+                    self.should_quit = true;
+                    return;
+                }
             } else if let Some(ref next) = node.next_node {
                 next.clone()
             } else {
@@ -324,10 +355,10 @@ impl App {
             };
 
             self.game_state.current_node = next;
-            crate::time::schedule_wait(&mut self.game_state, delay_secs);
+            crate::time::schedule_wait(&mut self.game_state, delay_info.seconds);
             let _ = save_game(&self.game_state);
 
-            // Show wait screen
+            // Show wait screen with the delay's localized message
             self.screen = Screen::Waiting;
             self.prompt_options = vec![
                 sys_msg(Msg::WaitOption, lang).to_string(),
@@ -337,83 +368,57 @@ impl App {
 
             let remaining =
                 crate::time::remaining_time_str(self.game_state.waiting_until.unwrap(), lang);
-            self.wait_message = Some(format!(
-                "{}\n\n{} (~{})",
-                sys_msg(Msg::ElaraUnavailable, lang),
-                sys_msg(Msg::ElaraBackAround, lang),
-                remaining,
-            ));
+            let delay_msg = delay_info.message.get(lang);
+            self.wait_message = Some(format!("{}\n\n(~{})", delay_msg, remaining));
             return;
         }
 
-        // Handle choices
-        if !node.choices.is_empty() {
-            // Trust-based refusal check
-            if node.should_refuse(&self.game_state) {
-                let refusal = node.trust_refusal.as_ref().unwrap();
-                let refusal_text = refusal.refusal_message.get(lang).to_string();
-
-                self.chat.push(ChatEntry::Elara(refusal_text.clone()));
-                self.game_state.message_log.push(LogEntry {
-                    sender: Sender::Elara,
-                    text: refusal_text,
-                    timestamp: chrono::Utc::now(),
-                });
-
-                self.game_state.current_node = refusal.refusal_node.clone();
-                let _ = save_game(&self.game_state);
-                self.advance_story = true;
-                return;
-            }
-
-            // Filter available choices
-            let available: Vec<(usize, &story::Choice)> = node.available_choices(&self.game_state);
-
-            if available.is_empty() {
-                if let Some(ref next) = node.next_node {
-                    self.game_state.current_node = next.clone();
+        // 3. Handle conditional branching (evaluated in order; first match wins)
+        if let Some(ref branches) = node.branch {
+            for branch in branches {
+                if branch.condition.evaluate(&self.game_state) {
+                    self.game_state.current_node = branch.next_node.clone();
                     let _ = save_game(&self.game_state);
                     self.advance_story = true;
-                } else {
-                    self.should_quit = true;
+                    return;
                 }
+            }
+            // No branch matched — this shouldn't happen if story is well-formed,
+            // but fall through to choices/next_node
+        }
+
+        // 4. Handle choices
+        if let Some(ref choices) = node.choices {
+            if !choices.is_empty() {
+                let choice_labels: Vec<String> = choices
+                    .iter()
+                    .map(|c| c.label.get(lang).to_string())
+                    .collect();
+
+                self.choices = choice_labels;
+                self.choice_index = 0;
                 return;
             }
+        }
 
-            let choice_labels: Vec<String> = available
-                .iter()
-                .map(|(_, c)| c.label.get(lang).to_string())
-                .collect();
-
-            // Auto-route: if all choices are "...", pick the first silently
-            let is_auto_route = choice_labels.iter().all(|l| l == "...");
-            if is_auto_route {
-                let (_, chosen) = available[0];
-                self.apply_choice(chosen);
-                return;
-            }
-
-            self.choices = choice_labels;
-            self.choice_index = 0;
-        } else if let Some(ref next) = node.next_node {
+        // 5. Linear next_node
+        if let Some(ref next) = node.next_node {
             self.game_state.current_node = next.clone();
             let _ = save_game(&self.game_state);
             self.advance_story = true;
         } else {
+            // Dead end — should not happen with a valid story
             self.should_quit = true;
         }
     }
 
-    /// Apply a chosen choice: set flags, modify stats, advance node.
-    fn apply_choice(&mut self, choice: &story::Choice) {
-        for flag in &choice.flags_set {
-            self.game_state.set_flag(flag);
-        }
-        for flag in &choice.flags_remove {
-            self.game_state.remove_flag(flag);
-        }
-        for (stat, delta) in &choice.stat_changes {
-            self.game_state.stats.modify(stat, *delta);
+    /// Apply a chosen choice: apply on_choose effects, advance node, check death.
+    fn apply_choice(&mut self, choice: &Choice) {
+        if let Some(ref effects) = choice.on_choose {
+            let health_changed = effects.apply(&mut self.game_state);
+            if health_changed && self.check_death() {
+                return;
+            }
         }
         self.game_state.current_node = choice.next_node.clone();
         let _ = save_game(&self.game_state);
@@ -426,7 +431,6 @@ impl App {
             return;
         }
 
-        let lang = self.lang();
         let label = self.choices[self.choice_index].clone();
 
         // Show player's choice in chat
@@ -437,24 +441,19 @@ impl App {
             timestamp: chrono::Utc::now(),
         });
 
-        // Find the original choice by matching the current node's available choices
+        // Find the original choice from the current node
         let node = self
             .story_data
             .nodes
             .get(&self.game_state.current_node)
             .cloned();
         if let Some(node) = node {
-            let available: Vec<(usize, &story::Choice)> = node.available_choices(&self.game_state);
-            let non_auto: Vec<_> = available
-                .iter()
-                .filter(|(_, c)| c.label.get(lang) != "...")
-                .collect();
-
-            if self.choice_index < non_auto.len() {
-                let (_, chosen) = non_auto[self.choice_index];
-                let chosen = (*chosen).clone();
-                self.choices.clear();
-                self.apply_choice(&chosen);
+            if let Some(ref choices) = node.choices {
+                if self.choice_index < choices.len() {
+                    let chosen = choices[self.choice_index].clone();
+                    self.choices.clear();
+                    self.apply_choice(&chosen);
+                }
             }
         }
     }
@@ -657,7 +656,7 @@ fn handle_prompt_key(app: &mut App, code: KeyCode) {
                             sys_msg(Msg::LanguageOption2, Language::En).to_string(),
                         ];
                         app.prompt_index = 0;
-                        app.game_state = GameState::new(Language::En);
+                        app.game_state = GameState::from_story(Language::En, &app.story_data);
                         app.chat.clear();
                     }
                 }
@@ -665,7 +664,7 @@ fn handle_prompt_key(app: &mut App, code: KeyCode) {
                     if app.prompt_index == 0 {
                         // Play again
                         let _ = crate::game::delete_save();
-                        app.game_state = GameState::new(Language::En);
+                        app.game_state = GameState::from_story(Language::En, &app.story_data);
                         app.chat.clear();
                         app.ending_reached = None;
                         app.screen = Screen::LanguageSelect;
@@ -1214,22 +1213,21 @@ fn draw_ending(frame: &mut Frame, app: &App) {
     );
     lines.push(Line::from(""));
 
-    if let Some(ref ending) = app.ending_reached {
-        if let Some(info) = app.story_data.ending_info(ending) {
+    if let Some(ref ending_key) = app.ending_reached {
+        if let Some(info) = app.story_data.ending_info(ending_key) {
+            // Color based on ending type
+            let title_color = match info.ending_type.as_str() {
+                "good" => Color::Green,
+                "bad" => Color::Red,
+                "bittersweet" => Color::Yellow,
+                _ => Color::White,
+            };
             lines.push(
                 Line::from(Span::styled(
                     format!("\"{}\"", info.title.get(lang)),
                     Style::default()
-                        .fg(Color::White)
+                        .fg(title_color)
                         .add_modifier(Modifier::BOLD),
-                ))
-                .centered(),
-            );
-            lines.push(Line::from(""));
-            lines.push(
-                Line::from(Span::styled(
-                    info.description.get(lang).to_string(),
-                    Style::default().fg(Color::DarkGray),
                 ))
                 .centered(),
             );
