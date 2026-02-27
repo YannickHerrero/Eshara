@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::fs;
+use std::io;
+use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -121,9 +124,95 @@ impl GameState {
     }
 }
 
+// ── Save / Load ──────────────────────────────────────────────
+
+/// Get the path to the save directory (~/.eshara/)
+pub fn save_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".eshara")
+}
+
+/// Get the path to the save file (~/.eshara/save.json)
+pub fn save_path() -> PathBuf {
+    save_dir().join("save.json")
+}
+
+/// Save the game state to disk
+pub fn save_game(state: &GameState) -> io::Result<()> {
+    let dir = save_dir();
+    if !dir.exists() {
+        fs::create_dir_all(&dir)?;
+    }
+    let json =
+        serde_json::to_string_pretty(state).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    fs::write(save_path(), json)
+}
+
+/// Load the game state from disk, if a save file exists
+pub fn load_game() -> io::Result<Option<GameState>> {
+    let path = save_path();
+    if !path.exists() {
+        return Ok(None);
+    }
+    let json = fs::read_to_string(path)?;
+    let state: GameState =
+        serde_json::from_str(&json).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    Ok(Some(state))
+}
+
+/// Delete the save file
+pub fn delete_save() -> io::Result<()> {
+    let path = save_path();
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+/// Check if a save file exists
+pub fn save_exists() -> bool {
+    save_path().exists()
+}
+
+// ── CLI argument parsing ─────────────────────────────────────
+
+/// Parsed command-line arguments
+pub struct CliArgs {
+    /// If true, delete save and exit
+    pub reset: bool,
+    /// Optional language override
+    pub language: Option<Language>,
+}
+
+/// Parse command-line arguments (minimal, no dependency)
+pub fn parse_cli_args() -> CliArgs {
+    let args: Vec<String> = std::env::args().collect();
+    let mut reset = false;
+    let mut language = None;
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--reset" => reset = true,
+            "--lang" => {
+                if i + 1 < args.len() {
+                    language = crate::i18n::parse_language(&args[i + 1]);
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    CliArgs { reset, language }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn test_new_game_state() {
@@ -165,5 +254,32 @@ mod tests {
         let deserialized: GameState = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.current_node, "intro");
         assert_eq!(deserialized.language, Language::En);
+    }
+
+    #[test]
+    fn test_save_and_load_roundtrip() {
+        // Use a temp dir to avoid polluting the real save location
+        let tmp = std::env::temp_dir().join("eshara_test_save");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let save_file = tmp.join("save.json");
+
+        let state = GameState::new(Language::Fr);
+        let json = serde_json::to_string_pretty(&state).unwrap();
+        fs::write(&save_file, &json).unwrap();
+
+        let loaded_json = fs::read_to_string(&save_file).unwrap();
+        let loaded: GameState = serde_json::from_str(&loaded_json).unwrap();
+        assert_eq!(loaded.current_node, "intro");
+        assert_eq!(loaded.language, Language::Fr);
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_save_dir_path() {
+        let dir = save_dir();
+        assert!(dir.to_string_lossy().contains(".eshara"));
     }
 }
