@@ -458,4 +458,58 @@ mod tests {
         let available = node.available_choices(&state);
         assert_eq!(available.len(), 2);
     }
+
+    // ── JSON story loading tests ────────────────────────────────
+
+    #[test]
+    fn test_embedded_json_parses() {
+        let story_data: StoryData =
+            serde_json::from_str(EMBEDDED_STORY).expect("Embedded JSON should parse");
+        assert!(!story_data.nodes.is_empty());
+        assert!(!story_data.endings.is_empty());
+    }
+
+    #[test]
+    fn test_embedded_json_validates() {
+        let story_data: StoryData = serde_json::from_str(EMBEDDED_STORY).unwrap();
+        let errors = story_data.validate();
+        assert!(
+            errors.is_empty(),
+            "Embedded story has validation errors: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_embedded_json_has_all_endings() {
+        let story_data: StoryData = serde_json::from_str(EMBEDDED_STORY).unwrap();
+        assert_eq!(story_data.endings.len(), 5, "Expected 5 endings");
+        assert!(story_data.ending_info(&EndingType::NewDawn).is_some());
+        assert!(story_data.ending_info(&EndingType::TheSignal).is_some());
+        assert!(story_data.ending_info(&EndingType::Static).is_some());
+        assert!(story_data.ending_info(&EndingType::GoneDark).is_some());
+        assert!(story_data.ending_info(&EndingType::TheEsharaWins).is_some());
+    }
+
+    #[test]
+    fn test_embedded_json_node_count() {
+        let story_data: StoryData = serde_json::from_str(EMBEDDED_STORY).unwrap();
+        assert!(
+            story_data.nodes.len() >= 60,
+            "Expected at least 60 nodes, got {}",
+            story_data.nodes.len()
+        );
+    }
+
+    #[test]
+    fn test_json_roundtrip_matches_hardcoded() {
+        // Verify the JSON-loaded story has the same number of nodes as the hardcoded one
+        let hardcoded = nodes::build_story_tree();
+        let story_data: StoryData = serde_json::from_str(EMBEDDED_STORY).unwrap();
+        assert_eq!(
+            hardcoded.len(),
+            story_data.nodes.len(),
+            "JSON node count should match hardcoded node count"
+        );
+    }
 }
