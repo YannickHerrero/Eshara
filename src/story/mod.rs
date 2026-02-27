@@ -71,7 +71,7 @@ pub struct StoryNode {
 }
 
 /// The type of ending reached
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EndingType {
     NewDawn,
     TheSignal,

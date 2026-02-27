@@ -32,6 +32,7 @@ impl LocalizedString {
 }
 
 /// System message keys for all UI/menu text
+#[allow(dead_code)]
 pub enum Msg {
     LanguagePrompt,
     LanguageOption1,

@@ -3188,4 +3188,118 @@ mod tests {
             assert_eq!(choice.label.get(Language::En), "...");
         }
     }
+
+    /// Walk the entire story graph from "intro" and collect all reachable nodes.
+    /// This traverses every possible path (choices, next_node, trust_refusal).
+    #[test]
+    fn test_all_nodes_reachable_from_intro() {
+        use std::collections::{HashSet, VecDeque};
+        let tree = build_story_tree();
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+        queue.push_back("intro".to_string());
+
+        while let Some(id) = queue.pop_front() {
+            if visited.contains(&id) {
+                continue;
+            }
+            visited.insert(id.clone());
+
+            if let Some(node) = tree.get(&id) {
+                if let Some(ref next) = node.next_node {
+                    queue.push_back(next.clone());
+                }
+                for choice in &node.choices {
+                    queue.push_back(choice.next_node.clone());
+                }
+                // Trust refusal nodes are also reachable
+                if let Some(ref refusal) = node.trust_refusal {
+                    queue.push_back(refusal.refusal_node.clone());
+                }
+            }
+        }
+
+        // Every node in the tree should be reachable from intro
+        let unreachable: Vec<_> = tree.keys().filter(|k| !visited.contains(*k)).collect();
+        assert!(
+            unreachable.is_empty(),
+            "Unreachable nodes found: {:?}",
+            unreachable
+        );
+    }
+
+    /// Verify that every path through the story graph eventually reaches an ending
+    /// (no dead ends). A dead end is a node with no choices, no next_node, and no ending.
+    #[test]
+    fn test_no_dead_ends() {
+        let tree = build_story_tree();
+        let mut dead_ends = Vec::new();
+
+        for (id, node) in &tree {
+            let has_next = node.next_node.is_some();
+            let has_choices = !node.choices.is_empty();
+            let has_ending = node.ending.is_some();
+
+            if !has_next && !has_choices && !has_ending {
+                dead_ends.push(id.clone());
+            }
+        }
+
+        assert!(
+            dead_ends.is_empty(),
+            "Dead-end nodes found (no choices, no next_node, no ending): {:?}",
+            dead_ends
+        );
+    }
+
+    /// Verify all 5 ending types are present in the graph and reachable.
+    #[test]
+    fn test_all_ending_types_exist() {
+        use std::collections::HashSet;
+        let tree = build_story_tree();
+        let ending_types: HashSet<_> = tree.values().filter_map(|n| n.ending.as_ref()).collect();
+
+        assert!(
+            ending_types.contains(&super::super::EndingType::NewDawn),
+            "Missing NewDawn ending"
+        );
+        assert!(
+            ending_types.contains(&super::super::EndingType::TheSignal),
+            "Missing TheSignal ending"
+        );
+        assert!(
+            ending_types.contains(&super::super::EndingType::Static),
+            "Missing Static ending"
+        );
+        assert!(
+            ending_types.contains(&super::super::EndingType::GoneDark),
+            "Missing GoneDark ending"
+        );
+        assert!(
+            ending_types.contains(&super::super::EndingType::TheEsharaWins),
+            "Missing TheEsharaWins ending"
+        );
+    }
+
+    /// Verify all messages have both EN and FR text (non-empty).
+    #[test]
+    fn test_all_messages_bilingual() {
+        let tree = build_story_tree();
+        for (id, node) in &tree {
+            for (i, msg) in node.messages.iter().enumerate() {
+                assert!(
+                    !msg.en.is_empty(),
+                    "Node '{}' message {} has empty EN text",
+                    id,
+                    i
+                );
+                assert!(
+                    !msg.fr.is_empty(),
+                    "Node '{}' message {} has empty FR text",
+                    id,
+                    i
+                );
+            }
+        }
+    }
 }
