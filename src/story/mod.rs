@@ -1,9 +1,28 @@
 pub mod endings;
 pub mod nodes;
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::i18n::LocalizedString;
+
+/// Localized ending metadata (title + description)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EndingInfo {
+    pub title: LocalizedString,
+    pub description: LocalizedString,
+}
+
+/// Top-level story data: the full narrative content loaded from JSON.
+/// Contains both the story node graph and ending metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoryData {
+    /// All story nodes keyed by their unique id
+    pub nodes: HashMap<String, StoryNode>,
+    /// Ending metadata keyed by the EndingType variant name
+    pub endings: HashMap<String, EndingInfo>,
+}
 
 /// A condition that must be met for a choice to be available
 #[derive(Debug, Clone, Serialize, Deserialize)]
