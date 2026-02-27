@@ -10,7 +10,8 @@ pub fn build_story_tree() -> HashMap<String, StoryNode> {
     build_act1(&mut nodes);
     build_act2(&mut nodes);
     build_act3(&mut nodes);
-    // Acts 4-5 will be added in subsequent commits
+    build_act4(&mut nodes);
+    // Act 5 will be added in a subsequent commit
 
     // Placeholder end node (will be removed once all acts are connected)
     add_node(
@@ -2179,8 +2180,419 @@ fn build_act3(nodes: &mut HashMap<String, StoryNode>) {
                 ),
             ],
             choices: vec![],
-            next_node: Some("placeholder_end".to_string()), // Will connect to Act 4
+            next_node: Some("a4_arrival".to_string()),
             delay: Some(300),
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+}
+
+// ── ACT 4 — The Crisis (Days 8-10) ───────────────────────────
+
+fn build_act4(nodes: &mut HashMap<String, StoryNode>) {
+    // === DAY 8 — Return to Helios ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a4_arrival".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I'm here. Helios. It looks worse than when I left. The walls are cracked, there's that grey dust everywhere, and the air feels heavy.",
+                    "J'y suis. Helios. C'est pire que quand je suis partie. Les murs sont fissur\u{00e9}s, y'a cette poussi\u{00e8}re grise partout, et l'air est lourd.",
+                ),
+                LocalizedString::new(
+                    "The sky above the facility is... wrong. It's darker here. Like a permanent eclipse. And I can see something shimmering above the main building. Like a heat haze, but vertical.",
+                    "Le ciel au-dessus du centre est... pas normal. C'est plus sombre ici. Comme une \u{00e9}clipse permanente. Et je vois un truc qui miroite au-dessus du b\u{00e2}timent principal. Comme un mirage, mais vertical.",
+                ),
+                LocalizedString::new(
+                    "The whispers are loud here. Not painful, just... insistent. Like they're trying to tell me something.",
+                    "Les chuchotements sont forts ici. Pas douloureux, juste... insistants. Comme s'ils essayaient de me dire quelque chose.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a4_enter_helios".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a4_enter_helios".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I'm going in. The main entrance is still barricaded from when I left. Good — means nothing got in.",
+                    "J'entre. L'entr\u{00e9}e principale est encore barricad\u{00e9}e depuis mon d\u{00e9}part. Bon \u{2014} \u{00e7}a veut dire que rien est entr\u{00e9}.",
+                ),
+                LocalizedString::new(
+                    "I can feel the vibration through the floor now. It's coming from below. From the MIROIR lab.",
+                    "Je sens la vibration \u{00e0} travers le sol maintenant. \u{00c7}a vient d'en bas. Du labo MIROIR.",
+                ),
+            ],
+            choices: vec![
+                Choice {
+                    label: LocalizedString::new(
+                        "Head straight for the MIROIR door. Use the keycard.",
+                        "Va direct \u{00e0} la porte MIROIR. Utilise le badge.",
+                    ),
+                    next_node: "a4_miroir_door".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![Condition::FlagSet("has_lab_keycard".to_string())],
+                },
+                Choice {
+                    label: LocalizedString::new(
+                        "Search for supplies first. You might need them.",
+                        "Cherche des provisions d'abord. T'en auras peut-\u{00ea}tre besoin.",
+                    ),
+                    next_node: "a4_search_first".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![("supplies".to_string(), 1)],
+                    conditions: vec![],
+                },
+            ],
+            next_node: None,
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a4_search_first".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "Found a few more things in the storage room. Extra batteries for the flashlight. That's huge — I'm going to need light down there.",
+                    "Trouv\u{00e9} quelques trucs en plus dans la salle de stockage. Des piles suppl\u{00e9}mentaires pour la lampe. C'est \u{00e9}norme \u{2014} j'aurai besoin de lumi\u{00e8}re l\u{00e0}-dessous.",
+                ),
+                LocalizedString::new(
+                    "Also found a note taped to the inside of a locker. It says: 'If anyone finds this — DO NOT open the resonance chamber. The rift cannot be closed from outside. You'd need to—' And then it's torn. Great.",
+                    "J'ai aussi trouv\u{00e9} un mot scotch\u{00e9} dans un casier. Il dit : \u{00ab} Si quelqu'un trouve ceci \u{2014} N'OUVREZ PAS la chambre de r\u{00e9}sonance. La br\u{00e8}che ne peut pas \u{00ea}tre ferm\u{00e9}e de l'ext\u{00e9}rieur. Il faudrait\u{2014} \u{00bb} Et puis c'est d\u{00e9}chir\u{00e9}. Super.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a4_miroir_door".to_string()),
+            delay: Some(120),
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // === The MIROIR door ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a4_miroir_door".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I'm at the door. The keycard reader is still powered. Green light. Deep breath.",
+                    "J'suis devant la porte. Le lecteur de badge est toujours aliment\u{00e9}. Lumi\u{00e8}re verte. Grande inspiration.",
+                ),
+                LocalizedString::new(
+                    "It worked. The door opened.",
+                    "\u{00c7}a a march\u{00e9}. La porte s'est ouverte.",
+                ),
+                LocalizedString::new(
+                    "Oh god.",
+                    "Oh mon dieu.",
+                ),
+                LocalizedString::new(
+                    "The room beyond is... it's enormous. Way bigger than it should be. The ceiling is impossibly high. And in the center there's this... thing. A column of light. But it's not really light. It's more like a tear in the air itself.",
+                    "La salle derri\u{00e8}re est... elle est \u{00e9}norme. Bien plus grande qu'elle devrait. Le plafond est impossiblement haut. Et au centre y'a ce... truc. Une colonne de lumi\u{00e8}re. Mais c'est pas vraiment de la lumi\u{00e8}re. C'est plut\u{00f4}t comme une d\u{00e9}chirure dans l'air.",
+                ),
+                LocalizedString::new(
+                    "That's it. That's the rift. That's what's causing the Eshara.",
+                    "C'est \u{00e7}a. C'est la br\u{00e8}che. C'est ce qui cause l'Eshara.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a4_console".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a4_console".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I can see the control console. It's on the far side of the chamber, past the rift. The screens are still active, showing data I don't understand.",
+                    "Je vois la console de contr\u{00f4}le. Elle est de l'autre c\u{00f4}t\u{00e9} de la salle, au-del\u{00e0} de la br\u{00e8}che. Les \u{00e9}crans sont encore actifs, avec des donn\u{00e9}es que je comprends pas.",
+                ),
+                LocalizedString::new(
+                    "But there's a problem. The rift is between me and the console. I'd have to walk past it. Close to it.",
+                    "Mais y'a un probl\u{00e8}me. La br\u{00e8}che est entre moi et la console. Faudrait que je passe \u{00e0} c\u{00f4}t\u{00e9}. Pr\u{00e8}s d'elle.",
+                ),
+                LocalizedString::new(
+                    "I can feel it pulling at me. Not physically — it's like my thoughts are being tugged toward it. Like it wants me to look inside.",
+                    "Je la sens qui m'attire. Pas physiquement \u{2014} c'est comme si mes pens\u{00e9}es \u{00e9}taient tir\u{00e9}es vers elle. Comme si elle voulait que je regarde \u{00e0} l'int\u{00e9}rieur.",
+                ),
+            ],
+            choices: vec![
+                Choice {
+                    label: LocalizedString::new(
+                        "Don't look at it. Eyes on the console. Just get there.",
+                        "La regarde pas. Les yeux sur la console. Avance juste.",
+                    ),
+                    next_node: "a4_approach_console".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![("trust_level".to_string(), 1)],
+                    conditions: vec![],
+                },
+                Choice {
+                    label: LocalizedString::new(
+                        "Look into the rift. Maybe it will show you something useful.",
+                        "Regarde dans la br\u{00e8}che. Elle te montrera peut-\u{00ea}tre quelque chose d'utile.",
+                    ),
+                    next_node: "a4_look_into_rift".to_string(),
+                    flags_set: vec!["looked_into_rift".to_string()],
+                    flags_remove: vec![],
+                    stat_changes: vec![("health".to_string(), -2)],
+                    conditions: vec![],
+                },
+            ],
+            next_node: None,
+            delay: None,
+            ending: None,
+            // Third trust refusal: if trust very low, Elara looks anyway
+            trust_refusal: Some(TrustRefusal {
+                min_trust: 4,
+                refusal_node: "a4_look_into_rift".to_string(),
+                refusal_message: LocalizedString::new(
+                    "I know you said not to look but... I can't help it. It's like it's calling my name. I just need to see—",
+                    "Je sais que tu m'as dit de pas regarder mais... je peux pas m'en emp\u{00ea}cher. C'est comme si \u{00e7}a appelait mon nom. Faut juste que je voie\u{2014}",
+                ),
+            }),
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a4_look_into_rift".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I looked.",
+                    "J'ai regard\u{00e9}.",
+                ),
+                LocalizedString::new(
+                    "I saw... I don't know how to describe it. Another place. Like here, but reflected. Twisted. The buildings were the same but made of something organic. Alive.",
+                    "J'ai vu... je sais pas comment le d\u{00e9}crire. Un autre endroit. Comme ici, mais refl\u{00e9}t\u{00e9}. Tordu. Les b\u{00e2}timents \u{00e9}taient les m\u{00ea}mes mais faits de quelque chose d'organique. Vivant.",
+                ),
+                LocalizedString::new(
+                    "And the people. The vanished people. They're there. On the other side. Standing. Waiting.",
+                    "Et les gens. Les gens disparus. Ils sont l\u{00e0}. De l'autre c\u{00f4}t\u{00e9}. Debout. En attente.",
+                ),
+                LocalizedString::new(
+                    "I feel dizzy. My nose is bleeding. But I know something now that I didn't before.",
+                    "J'ai des vertiges. Mon nez saigne. Mais je sais quelque chose maintenant que je savais pas avant.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a4_approach_console".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a4_approach_console".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I'm at the console. My hands are shaking. The screens show the resonance frequency, power levels, cascade status.",
+                    "J'suis \u{00e0} la console. Mes mains tremblent. Les \u{00e9}crans montrent la fr\u{00e9}quence de r\u{00e9}sonance, les niveaux d'\u{00e9}nergie, le statut de la cascade.",
+                ),
+                LocalizedString::new(
+                    "There's a shutdown sequence. But there's a warning: 'Shutdown will collapse the rift. Estimated collapse radius: 200 meters. All personnel must evacuate before initiation.'",
+                    "Y'a une s\u{00e9}quence d'arr\u{00ea}t. Mais y'a un avertissement : \u{00ab} L'arr\u{00ea}t provoquera l'effondrement de la br\u{00e8}che. Rayon d'effondrement estim\u{00e9} : 200 m\u{00e8}tres. Tout le personnel doit \u{00e9}vacuer avant le d\u{00e9}clenchement. \u{00bb}",
+                ),
+                LocalizedString::new(
+                    "200 meters. I'm maybe 10 meters from the rift right now. This room is underground. Getting out in time...",
+                    "200 m\u{00e8}tres. J'suis \u{00e0} peut-\u{00ea}tre 10 m\u{00e8}tres de la br\u{00e8}che. Cette salle est souterraine. Sortir \u{00e0} temps...",
+                ),
+            ],
+            choices: vec![
+                Choice {
+                    label: LocalizedString::new(
+                        "Set a timer on the shutdown. Give yourself time to run.",
+                        "Mets un minuteur sur l'arr\u{00ea}t. Donne-toi le temps de courir.",
+                    ),
+                    next_node: "a4_timed_shutdown".to_string(),
+                    flags_set: vec!["timed_shutdown".to_string()],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![],
+                },
+                Choice {
+                    label: LocalizedString::new(
+                        "Is there another way? Can the rift be sealed without the collapse?",
+                        "Y'a un autre moyen ? On peut sceller la br\u{00e8}che sans l'effondrement ?",
+                    ),
+                    next_node: "a4_alternative".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![],
+                },
+                Choice {
+                    label: LocalizedString::new(
+                        "Do it now. Hit the button. Saving the world is worth the risk.",
+                        "Fais-le maintenant. Appuie sur le bouton. Sauver le monde vaut le risque.",
+                    ),
+                    next_node: "a4_immediate_shutdown".to_string(),
+                    flags_set: vec!["sacrifice_made".to_string()],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![],
+                },
+            ],
+            next_node: None,
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a4_timed_shutdown".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "The system has a delay option. I can set it for 5 minutes. That might be enough to get out of the building. Maybe.",
+                    "Le syst\u{00e8}me a une option de d\u{00e9}lai. Je peux le r\u{00e9}gler sur 5 minutes. \u{00c7}a pourrait suffire pour sortir du b\u{00e2}timent. Peut-\u{00ea}tre.",
+                ),
+                LocalizedString::new(
+                    "Setting the timer. Five minutes. Starting... now.",
+                    "Je r\u{00e8}gle le minuteur. Cinq minutes. C'est parti... maintenant.",
+                ),
+                LocalizedString::new(
+                    "RUN.",
+                    "COURS.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("placeholder_end".to_string()), // Will connect to Act 5
+            delay: Some(120),
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a4_alternative".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I'm looking through the console... there's a second option. 'Resonance Inversion.' It says it would reverse the cascade instead of shutting it down.",
+                    "Je cherche dans la console... y'a une deuxi\u{00e8}me option. \u{00ab} Inversion de r\u{00e9}sonance. \u{00bb} \u{00c7}a dit que \u{00e7}a inverserait la cascade au lieu de l'arr\u{00ea}ter.",
+                ),
+                LocalizedString::new(
+                    "But the warning says: 'Inversion requires manual calibration from within the resonance field. Operator exposure to rift energy will be significant and potentially fatal.'",
+                    "Mais l'avertissement dit : \u{00ab} L'inversion n\u{00e9}cessite un calibrage manuel depuis l'int\u{00e9}rieur du champ de r\u{00e9}sonance. L'exposition de l'op\u{00e9}rateur \u{00e0} l'\u{00e9}nergie de la br\u{00e8}che sera significative et potentiellement fatale. \u{00bb}",
+                ),
+                LocalizedString::new(
+                    "So my choices are: run and hope the timed shutdown works, or step into the rift field and try to reverse it myself. If I reverse it, the vanished people might come back. But I might not survive it.",
+                    "Alors mes choix sont : courir et esp\u{00e9}rer que l'arr\u{00ea}t minuteur marche, ou entrer dans le champ de la br\u{00e8}che et essayer d'inverser moi-m\u{00ea}me. Si j'inverse, les gens disparus pourraient revenir. Mais je survivrai peut-\u{00ea}tre pas.",
+                ),
+            ],
+            choices: vec![
+                Choice {
+                    label: LocalizedString::new(
+                        "Set the timer and run. Your life matters too.",
+                        "Mets le minuteur et cours. Ta vie compte aussi.",
+                    ),
+                    next_node: "a4_timed_shutdown".to_string(),
+                    flags_set: vec!["timed_shutdown".to_string()],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![],
+                },
+                Choice {
+                    label: LocalizedString::new(
+                        "Try the inversion. If there's a chance to bring people back...",
+                        "Tente l'inversion. S'il y a une chance de ramener les gens...",
+                    ),
+                    next_node: "a4_inversion".to_string(),
+                    flags_set: vec!["sacrifice_made".to_string(), "attempted_inversion".to_string()],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![],
+                },
+            ],
+            next_node: None,
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a4_immediate_shutdown".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "You're right. No time to waste. Every second this thing runs, more people suffer.",
+                    "T'as raison. Pas de temps \u{00e0} perdre. Chaque seconde o\u{00f9} ce truc tourne, plus de gens souffrent.",
+                ),
+                LocalizedString::new(
+                    "I'm initiating the shutdown sequence. The console is vibrating. The rift is reacting — it's getting brighter.",
+                    "Je lance la s\u{00e9}quence d'arr\u{00ea}t. La console vibre. La br\u{00e8}che r\u{00e9}agit \u{2014} elle devient plus brillante.",
+                ),
+                LocalizedString::new(
+                    "Running. I'm running as fast as I can.",
+                    "Je cours. Je cours aussi vite que je peux.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("placeholder_end".to_string()), // Will connect to Act 5
+            delay: Some(60),
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a4_inversion".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "Okay. I'm doing it. I'm stepping into the resonance field.",
+                    "Bon. Je le fais. J'entre dans le champ de r\u{00e9}sonance.",
+                ),
+                LocalizedString::new(
+                    "It feels like... like being everywhere at once. I can feel the other side. I can feel them. All the vanished people. They're reaching out.",
+                    "\u{00c7}a fait comme... comme \u{00ea}tre partout en m\u{00ea}me temps. Je sens l'autre c\u{00f4}t\u{00e9}. Je les sens. Tous les gens disparus. Ils tendent les mains.",
+                ),
+                LocalizedString::new(
+                    "I'm calibrating the inversion. My hands are moving but I don't think it's entirely me controlling them. Something is guiding me.",
+                    "Je calibre l'inversion. Mes mains bougent mais je crois que c'est pas enti\u{00e8}rement moi qui les contr\u{00f4}le. Quelque chose me guide.",
+                ),
+                LocalizedString::new(
+                    "The light is blinding. I can't—",
+                    "La lumi\u{00e8}re est aveuglante. Je peux pas\u{2014}",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("placeholder_end".to_string()), // Will connect to Act 5
+            delay: Some(60),
             ending: None,
             trust_refusal: None,
         },
@@ -2277,12 +2689,29 @@ mod tests {
     }
 
     #[test]
+    fn test_act4_nodes_exist() {
+        let tree = build_story_tree();
+        assert!(tree.contains_key("a4_arrival"));
+        assert!(tree.contains_key("a4_miroir_door"));
+        assert!(tree.contains_key("a4_console"));
+        assert!(tree.contains_key("a4_approach_console"));
+        assert!(tree.contains_key("a4_inversion"));
+    }
+
+    #[test]
+    fn test_act4_has_trust_refusal() {
+        let tree = build_story_tree();
+        let console = tree.get("a4_console").unwrap();
+        assert!(console.trust_refusal.is_some());
+    }
+
+    #[test]
     fn test_total_node_count() {
         let tree = build_story_tree();
-        // Acts 1+2+3 + placeholder should be at least 45 nodes
+        // Acts 1+2+3+4 + placeholder should be at least 55 nodes
         assert!(
-            tree.len() >= 45,
-            "Expected at least 45 nodes, got {}",
+            tree.len() >= 55,
+            "Expected at least 55 nodes, got {}",
             tree.len()
         );
     }
