@@ -59,6 +59,13 @@ pub enum Msg {
     InvalidChoice,
     SaveDeleted,
     IntroRadioCrackle,
+    PauseMenuTitle,
+    PauseMenuHint,
+    MenuResume,
+    MenuChangeLanguage,
+    MenuSaveQuit,
+    LanguageSwitched,
+    SavedAndQuit,
 }
 
 /// Get a localized system message
@@ -128,6 +135,22 @@ pub fn sys_msg(key: Msg, lang: Language) -> &'static str {
         // Save management
         (Msg::SaveDeleted, Language::En) => "Save file deleted. Starting fresh.",
         (Msg::SaveDeleted, Language::Fr) => "Sauvegarde supprim\u{00e9}e. Red\u{00e9}marrage.",
+
+        // Pause menu
+        (Msg::PauseMenuTitle, Language::En) => "--- MENU ---",
+        (Msg::PauseMenuTitle, Language::Fr) => "--- MENU ---",
+        (Msg::PauseMenuHint, Language::En) => "[Esc] Menu",
+        (Msg::PauseMenuHint, Language::Fr) => "[Esc] Menu",
+        (Msg::MenuResume, Language::En) => "Resume",
+        (Msg::MenuResume, Language::Fr) => "Reprendre",
+        (Msg::MenuChangeLanguage, Language::En) => "Change language",
+        (Msg::MenuChangeLanguage, Language::Fr) => "Changer la langue",
+        (Msg::MenuSaveQuit, Language::En) => "Save & Quit",
+        (Msg::MenuSaveQuit, Language::Fr) => "Sauvegarder & Quitter",
+        (Msg::LanguageSwitched, Language::En) => "Language changed to English.",
+        (Msg::LanguageSwitched, Language::Fr) => "Langue chang\u{00e9}e en fran\u{00e7}ais.",
+        (Msg::SavedAndQuit, Language::En) => "Game saved. See you soon.",
+        (Msg::SavedAndQuit, Language::Fr) => "Partie sauvegard\u{00e9}e. \u{00c0} bient\u{00f4}t.",
 
         // Intro
         (Msg::IntroRadioCrackle, Language::En) => {

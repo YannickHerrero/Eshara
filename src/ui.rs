@@ -11,6 +11,21 @@ use crossterm::{
 
 use crate::i18n::{sys_msg, Language, Msg};
 
+/// Result of a choice prompt — either a selection or a request to open the menu.
+pub enum ChoiceResult {
+    /// Player selected a choice (0-based index)
+    Selected(usize),
+    /// Player pressed Esc — open the pause menu
+    OpenMenu,
+}
+
+/// Actions available in the pause menu.
+pub enum PauseAction {
+    Resume,
+    ChangeLanguage,
+    SaveQuit,
+}
+
 /// Default typewriter delay per character in milliseconds
 const DEFAULT_CHAR_DELAY_MS: u64 = 60;
 
@@ -267,9 +282,9 @@ pub fn print_separator(timestamp: Option<&str>) -> io::Result<()> {
 }
 
 /// Display choices as an interactive menu navigated with arrow keys.
-/// Up/Down (or k/j) to move, Enter to confirm.
-/// Returns the 0-based index of the chosen option.
-pub fn prompt_choice(choices: &[String]) -> io::Result<usize> {
+/// Up/Down (or k/j) to move, Enter to confirm, Esc to open the pause menu.
+/// Returns `ChoiceResult::Selected(index)` or `ChoiceResult::OpenMenu`.
+pub fn prompt_choice(choices: &[String]) -> io::Result<ChoiceResult> {
     let mut stdout = io::stdout();
     let count = choices.len();
     let mut selected: usize = 0;
@@ -302,11 +317,10 @@ pub fn prompt_choice(choices: &[String]) -> io::Result<usize> {
                         redraw_choices(&mut stdout, choices, selected)?;
                     }
                     KeyCode::Enter => {
-                        break Ok(selected);
+                        break Ok(ChoiceResult::Selected(selected));
                     }
                     KeyCode::Esc => {
-                        // Treat Esc like an interrupt
-                        break Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+                        break Ok(ChoiceResult::OpenMenu);
                     }
                     _ => {}
                 }
@@ -324,6 +338,34 @@ pub fn prompt_choice(choices: &[String]) -> io::Result<usize> {
     terminal::disable_raw_mode()?;
 
     result
+}
+
+/// Like `prompt_choice`, but ignores Esc (keeps looping until a selection is made).
+/// Used for system menus where the pause menu doesn't apply.
+pub fn prompt_choice_simple(choices: &[String]) -> io::Result<usize> {
+    loop {
+        match prompt_choice(choices)? {
+            ChoiceResult::Selected(idx) => return Ok(idx),
+            ChoiceResult::OpenMenu => {
+                // Esc has no effect in system menus — just redisplay.
+                // The choices are still on screen; we need to erase and redraw.
+                let mut stdout = io::stdout();
+                // Move up past the choice lines to redraw
+                let count = choices.len() as u16;
+                for _ in 0..count {
+                    stdout.execute(cursor::MoveUp(1))?;
+                    write!(stdout, "\r")?;
+                    stdout.execute(terminal::Clear(terminal::ClearType::CurrentLine))?;
+                }
+                // Also erase the blank line before choices
+                stdout.execute(cursor::MoveUp(1))?;
+                write!(stdout, "\r")?;
+                stdout.execute(terminal::Clear(terminal::ClearType::CurrentLine))?;
+                stdout.flush()?;
+                continue;
+            }
+        }
+    }
 }
 
 /// Draw the choice menu (initial render). Each line: `  > choice` or `    choice`.
@@ -388,6 +430,154 @@ fn redraw_choices(stdout: &mut io::Stdout, choices: &[String], selected: usize) 
     }
     stdout.flush()?;
     Ok(())
+}
+
+/// Show the pause menu overlay. Returns the chosen action.
+/// The menu is displayed inline, then erased when the player picks an option.
+pub fn show_pause_menu(lang: Language) -> io::Result<PauseAction> {
+    let mut stdout = io::stdout();
+
+    // Menu items
+    let items = vec![
+        sys_msg(Msg::MenuResume, lang).to_string(),
+        sys_msg(Msg::MenuChangeLanguage, lang).to_string(),
+        sys_msg(Msg::MenuSaveQuit, lang).to_string(),
+    ];
+
+    print_blank()?;
+    print_separator(None)?;
+    print_system_message(sys_msg(Msg::PauseMenuTitle, lang))?;
+    print_blank()?;
+
+    // We need to track how many lines the menu occupies so we can erase it later.
+    // Title area: blank + separator + title + blank = 4 lines
+    // Choices: items.len() lines
+    // Trailing blank: 1 line
+    // Separator: 1 line
+    let menu_lines = 4 + items.len() as u16 + 2;
+
+    draw_choices(&mut stdout, &items, 0)?;
+    print_blank()?;
+    print_separator(None)?;
+
+    terminal::enable_raw_mode()?;
+    stdout.execute(cursor::Hide)?;
+
+    let mut selected: usize = 0;
+    let count = items.len();
+
+    let result = loop {
+        if event::poll(Duration::from_millis(100))? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        selected = if selected == 0 {
+                            count - 1
+                        } else {
+                            selected - 1
+                        };
+                        // Move up past trailing blank + separator (2 lines) + choices
+                        stdout.execute(cursor::MoveUp(count as u16 + 2))?;
+                        for (i, item) in items.iter().enumerate() {
+                            write!(stdout, "\r")?;
+                            stdout.execute(terminal::Clear(terminal::ClearType::CurrentLine))?;
+                            if i == selected {
+                                writeln!(
+                                    stdout,
+                                    "  {} {}",
+                                    ">".with(Color::Yellow).attribute(Attribute::Bold),
+                                    item.as_str().with(Color::Yellow).attribute(Attribute::Bold),
+                                )?;
+                            } else {
+                                writeln!(
+                                    stdout,
+                                    "    {}",
+                                    item.as_str().with(Color::Yellow).attribute(Attribute::Dim),
+                                )?;
+                            }
+                        }
+                        // Rewrite trailing blank + separator
+                        write!(stdout, "\r")?;
+                        stdout.execute(terminal::Clear(terminal::ClearType::CurrentLine))?;
+                        writeln!(stdout)?;
+                        write!(stdout, "\r")?;
+                        stdout.execute(terminal::Clear(terminal::ClearType::CurrentLine))?;
+                        let width = term_width() as usize;
+                        writeln!(
+                            stdout,
+                            "{}",
+                            "\u{2500}".repeat(width.min(80)).with(Color::DarkGrey)
+                        )?;
+                        stdout.flush()?;
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        selected = (selected + 1) % count;
+                        stdout.execute(cursor::MoveUp(count as u16 + 2))?;
+                        for (i, item) in items.iter().enumerate() {
+                            write!(stdout, "\r")?;
+                            stdout.execute(terminal::Clear(terminal::ClearType::CurrentLine))?;
+                            if i == selected {
+                                writeln!(
+                                    stdout,
+                                    "  {} {}",
+                                    ">".with(Color::Yellow).attribute(Attribute::Bold),
+                                    item.as_str().with(Color::Yellow).attribute(Attribute::Bold),
+                                )?;
+                            } else {
+                                writeln!(
+                                    stdout,
+                                    "    {}",
+                                    item.as_str().with(Color::Yellow).attribute(Attribute::Dim),
+                                )?;
+                            }
+                        }
+                        write!(stdout, "\r")?;
+                        stdout.execute(terminal::Clear(terminal::ClearType::CurrentLine))?;
+                        writeln!(stdout)?;
+                        write!(stdout, "\r")?;
+                        stdout.execute(terminal::Clear(terminal::ClearType::CurrentLine))?;
+                        let width = term_width() as usize;
+                        writeln!(
+                            stdout,
+                            "{}",
+                            "\u{2500}".repeat(width.min(80)).with(Color::DarkGrey)
+                        )?;
+                        stdout.flush()?;
+                    }
+                    KeyCode::Enter => {
+                        break match selected {
+                            0 => PauseAction::Resume,
+                            1 => PauseAction::ChangeLanguage,
+                            2 => PauseAction::SaveQuit,
+                            _ => PauseAction::Resume,
+                        };
+                    }
+                    KeyCode::Esc => {
+                        // Esc again = resume
+                        break PauseAction::Resume;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if crate::is_interrupted() {
+            break PauseAction::SaveQuit;
+        }
+    };
+
+    stdout.execute(cursor::Show)?;
+    terminal::disable_raw_mode()?;
+
+    // Erase the menu by moving up and clearing each line
+    for _ in 0..menu_lines {
+        stdout.execute(cursor::MoveUp(1))?;
+        write!(stdout, "\r")?;
+        stdout.execute(terminal::Clear(terminal::ClearType::CurrentLine))?;
+    }
+    stdout.flush()?;
+
+    Ok(result)
 }
 
 /// Print a blank line

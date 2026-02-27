@@ -116,7 +116,7 @@ pub fn handle_waiting(state: &mut GameState) -> io::Result<bool> {
             sys_msg(Msg::WaitOption, lang).to_string(),
             sys_msg(Msg::QuitOption, lang).to_string(),
         ];
-        let choice = ui::prompt_choice(&choices)?;
+        let choice = ui::prompt_choice_simple(&choices)?;
 
         if choice == 0 {
             // Wait: poll until the time is reached

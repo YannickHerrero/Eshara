@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crossterm::ExecutableCommand;
+
 use chrono::Utc;
 
 use game::{
@@ -106,7 +108,7 @@ fn run() -> io::Result<()> {
                     sys_msg(Msg::ContinueOption, lang).to_string(),
                     sys_msg(Msg::NewGameOption, lang).to_string(),
                 ];
-                let choice = ui::prompt_choice(&choices)?;
+                let choice = ui::prompt_choice_simple(&choices)?;
 
                 if choice == 0 {
                     // Replay the backlog so the player remembers where they left off
@@ -158,7 +160,7 @@ fn select_language(override_lang: Option<Language>) -> io::Result<Language> {
         sys_msg(Msg::LanguageOption1, Language::En).to_string(),
         sys_msg(Msg::LanguageOption2, Language::En).to_string(),
     ];
-    let choice = ui::prompt_choice(&choices)?;
+    let choice = ui::prompt_choice_simple(&choices)?;
 
     Ok(if choice == 0 {
         Language::En
@@ -315,7 +317,35 @@ fn game_loop(state: &mut GameState, story: &HashMap<String, StoryNode>) -> io::R
             let (chosen_display_idx, chosen) = if is_auto_route {
                 (0, available[0].1)
             } else {
-                let idx = ui::prompt_choice(&choice_labels)?;
+                // Loop: present choices, handle Esc -> pause menu -> re-present
+                let idx = loop {
+                    match ui::prompt_choice(&choice_labels)? {
+                        ui::ChoiceResult::Selected(idx) => break idx,
+                        ui::ChoiceResult::OpenMenu => {
+                            // Erase the choice lines before showing the menu
+                            let mut stdout = io::stdout();
+                            let count = choice_labels.len() as u16;
+                            for _ in 0..=count {
+                                stdout.execute(crossterm::cursor::MoveUp(1))?;
+                                write!(stdout, "\r")?;
+                                stdout.execute(crossterm::terminal::Clear(
+                                    crossterm::terminal::ClearType::CurrentLine,
+                                ))?;
+                            }
+                            stdout.flush()?;
+
+                            match handle_pause_menu(state)? {
+                                PauseMenuResult::Resume => {
+                                    // Re-display choices (the loop will call prompt_choice again)
+                                    continue;
+                                }
+                                PauseMenuResult::Quit => {
+                                    return Ok(());
+                                }
+                            }
+                        }
+                    }
+                };
                 (idx, available[idx].1)
             };
 
@@ -396,7 +426,7 @@ fn show_ending_screen(state: &GameState) -> io::Result<()> {
         sys_msg(Msg::YesOption, lang).to_string(),
         sys_msg(Msg::NoOption, lang).to_string(),
     ];
-    let choice = ui::prompt_choice(&choices)?;
+    let choice = ui::prompt_choice_simple(&choices)?;
 
     if choice == 0 {
         delete_save()?;
@@ -407,6 +437,49 @@ fn show_ending_screen(state: &GameState) -> io::Result<()> {
     }
 
     Ok(())
+}
+
+/// Result of handling the pause menu
+enum PauseMenuResult {
+    /// Player chose to resume (or switched language then implicitly resumes)
+    Resume,
+    /// Player chose to save and quit
+    Quit,
+}
+
+/// Show the pause menu and handle the selected action.
+/// Returns whether the game should resume or quit.
+fn handle_pause_menu(state: &mut GameState) -> io::Result<PauseMenuResult> {
+    let action = ui::show_pause_menu(state.language)?;
+
+    match action {
+        ui::PauseAction::Resume => Ok(PauseMenuResult::Resume),
+        ui::PauseAction::ChangeLanguage => {
+            // Toggle language
+            let new_lang = match state.language {
+                Language::En => Language::Fr,
+                Language::Fr => Language::En,
+            };
+            state.language = new_lang;
+            save_game(state)?;
+
+            ui::print_system_message(sys_msg(Msg::LanguageSwitched, new_lang))?;
+            ui::print_blank()?;
+
+            Ok(PauseMenuResult::Resume)
+        }
+        ui::PauseAction::SaveQuit => {
+            save_game(state)?;
+
+            ui::print_blank()?;
+            ui::print_separator(None)?;
+            ui::print_blank()?;
+            ui::print_system_message(sys_msg(Msg::SavedAndQuit, state.language))?;
+            ui::print_blank()?;
+
+            Ok(PauseMenuResult::Quit)
+        }
+    }
 }
 
 /// Handle graceful exit on Ctrl+C: save, show message, restore terminal
