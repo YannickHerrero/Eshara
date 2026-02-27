@@ -1,13 +1,9 @@
 use std::env;
-use std::io;
-use std::thread;
-use std::time::Duration;
 
 use chrono::{DateTime, Duration as ChronoDuration, Local, Utc};
 
 use crate::game::GameState;
-use crate::i18n::{sys_msg, Language, Msg};
-use crate::ui;
+use crate::i18n::Language;
 
 /// Check if debug mode is enabled (ESHARA_DEBUG=1)
 /// In debug mode, all delays are reduced to 5 seconds
@@ -76,89 +72,10 @@ pub fn remaining_time_str(until: DateTime<Utc>, lang: Language) -> String {
 }
 
 /// Format a DateTime as a local time string for display (e.g., "14:30")
+#[allow(dead_code)]
 pub fn format_local_time(dt: DateTime<Utc>) -> String {
     let local: DateTime<Local> = dt.into();
     local.format("%H:%M").to_string()
-}
-
-/// Handle the waiting state when the player launches the game while Elara is busy
-/// Returns true if the player chose to wait (and the wait completed),
-/// false if they chose to quit
-pub fn handle_waiting(state: &mut GameState) -> io::Result<bool> {
-    let lang = state.language;
-
-    if let Some(until) = state.waiting_until {
-        if Utc::now() >= until {
-            // Wait is over — clear it and continue
-            state.waiting_until = None;
-            // Bell notification
-            print!("\x07");
-            return Ok(true);
-        }
-
-        // Elara is still busy
-        ui::print_blank()?;
-        ui::print_system_message(sys_msg(Msg::ElaraUnavailable, lang))?;
-        ui::print_blank()?;
-
-        let back_time = format_local_time(until);
-        let remaining = remaining_time_str(until, lang);
-        ui::print_system_message(&format!(
-            "{} {} (~{})",
-            sys_msg(Msg::ElaraBackAround, lang),
-            back_time,
-            remaining
-        ))?;
-        ui::print_blank()?;
-
-        ui::print_system_message(sys_msg(Msg::WaitOrQuit, lang))?;
-        let choices = vec![
-            sys_msg(Msg::WaitOption, lang).to_string(),
-            sys_msg(Msg::QuitOption, lang).to_string(),
-        ];
-        let choice = ui::prompt_choice_simple(&choices)?;
-
-        if choice == 0 {
-            // Wait: poll until the time is reached
-            wait_until(until, lang)?;
-            state.waiting_until = None;
-            // Bell notification
-            print!("\x07");
-            return Ok(true);
-        } else {
-            // Quit
-            return Ok(false);
-        }
-    }
-
-    // Not waiting
-    Ok(true)
-}
-
-/// Actively wait until the given time, showing a countdown
-fn wait_until(until: DateTime<Utc>, lang: Language) -> io::Result<()> {
-    ui::print_blank()?;
-
-    loop {
-        let now = Utc::now();
-        if now >= until {
-            break;
-        }
-
-        let remaining = remaining_time_str(until, lang);
-        let msg = match lang {
-            Language::En => format!("Waiting... ({})", remaining),
-            Language::Fr => format!("En attente... ({})", remaining),
-        };
-        ui::print_system_message(&msg)?;
-
-        // Sleep for a short interval, then re-check
-        let sleep_secs = if is_debug_mode() { 1 } else { 30 };
-        thread::sleep(Duration::from_secs(sleep_secs));
-    }
-
-    ui::print_blank()?;
-    Ok(())
 }
 
 #[cfg(test)]
