@@ -340,6 +340,47 @@ pub fn print_banner() -> io::Result<()> {
     Ok(())
 }
 
+/// Replay the message backlog (non-animated) when resuming a saved game.
+/// Inserts session separators at LogEntry items with Sender::System whose text
+/// starts with "SESSION:".
+pub fn replay_backlog(log: &[crate::game::LogEntry], lang: Language) -> io::Result<()> {
+    if log.is_empty() {
+        return Ok(());
+    }
+
+    print_system_message(sys_msg(Msg::BacklogHeader, lang))?;
+    print_blank()?;
+
+    for entry in log {
+        match entry.sender {
+            crate::game::Sender::Elara => {
+                print_elara_message(&entry.text)?;
+            }
+            crate::game::Sender::Player => {
+                print_player_choice(&entry.text)?;
+                print_blank()?;
+            }
+            crate::game::Sender::System => {
+                if entry.text.starts_with("SESSION:") {
+                    // Session separator — extract the timestamp label
+                    let label = entry.text.trim_start_matches("SESSION:");
+                    print_blank()?;
+                    print_separator(Some(label))?;
+                    print_blank()?;
+                } else {
+                    print_system_message(&entry.text)?;
+                }
+            }
+        }
+    }
+
+    print_blank()?;
+    print_separator(None)?;
+    print_blank()?;
+
+    Ok(())
+}
+
 // Silence unused import warnings for items used indirectly
 const _: () = {
     fn _uses() {

@@ -47,6 +47,8 @@ pub enum Msg {
     QuitOption,
     SignalLost,
     DaySeparator,
+    BacklogHeader,
+    SessionStart,
     EndingReached,
     DaysSurvived,
     KeyChoices,
@@ -97,6 +99,12 @@ pub fn sys_msg(key: Msg, lang: Language) -> &'static str {
         // Day separator
         (Msg::DaySeparator, Language::En) => "Day",
         (Msg::DaySeparator, Language::Fr) => "Jour",
+
+        // Backlog / session
+        (Msg::BacklogHeader, Language::En) => "--- Previous messages ---",
+        (Msg::BacklogHeader, Language::Fr) => "--- Messages pr\u{00e9}c\u{00e9}dents ---",
+        (Msg::SessionStart, Language::En) => "Session",
+        (Msg::SessionStart, Language::Fr) => "Session",
 
         // Ending screen
         (Msg::EndingReached, Language::En) => "ENDING REACHED",

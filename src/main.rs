@@ -45,12 +45,25 @@ fn run() -> io::Result<()> {
             // Check if Elara is still waiting
             if time::is_waiting(&existing) {
                 let mut s = existing;
+
+                // Show backlog before handling the wait
+                ui::replay_backlog(&s.message_log, lang)?;
+
                 let should_continue = time::handle_waiting(&mut s)?;
                 if !should_continue {
                     // Player chose to quit and come back later
                     save_game(&s)?;
                     return Ok(());
                 }
+
+                // Add a session separator
+                let now = Utc::now();
+                let session_label = now.format("%Y-%m-%d %H:%M").to_string();
+                s.message_log.push(LogEntry {
+                    sender: Sender::System,
+                    text: format!("SESSION:{}", session_label),
+                    timestamp: now,
+                });
                 save_game(&s)?;
                 s
             } else {
@@ -63,6 +76,9 @@ fn run() -> io::Result<()> {
                     save_game(&s)?;
                 }
 
+                // Show backlog before the continue/new prompt
+                ui::replay_backlog(&s.message_log, lang)?;
+
                 ui::print_system_message(sys_msg(Msg::ContinueOrNew, lang))?;
                 ui::print_blank()?;
 
@@ -73,6 +89,19 @@ fn run() -> io::Result<()> {
                 let choice = ui::prompt_choice(&choices)?;
 
                 if choice == 0 {
+                    // Replay the backlog so the player remembers where they left off
+                    ui::replay_backlog(&s.message_log, lang)?;
+
+                    // Add a session separator to the log
+                    let now = Utc::now();
+                    let session_label = now.format("%Y-%m-%d %H:%M").to_string();
+                    s.message_log.push(LogEntry {
+                        sender: Sender::System,
+                        text: format!("SESSION:{}", session_label),
+                        timestamp: now,
+                    });
+                    save_game(&s)?;
+
                     s
                 } else {
                     let lang = select_language(args.language)?;
@@ -130,7 +159,18 @@ fn start_new_game(lang: Language) -> io::Result<GameState> {
     ui::print_separator(None)?;
     ui::print_blank()?;
 
-    Ok(GameState::new(lang))
+    let mut state = GameState::new(lang);
+
+    // Log the first session start
+    let now = Utc::now();
+    let session_label = now.format("%Y-%m-%d %H:%M").to_string();
+    state.message_log.push(LogEntry {
+        sender: Sender::System,
+        text: format!("SESSION:{}", session_label),
+        timestamp: now,
+    });
+
+    Ok(state)
 }
 
 /// The core game loop: process nodes, display messages, handle choices
