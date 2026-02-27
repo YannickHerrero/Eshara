@@ -241,19 +241,30 @@ fn game_loop(state: &mut GameState, story: &HashMap<String, StoryNode>) -> io::R
                 .map(|(_, c)| c.label.get(lang).to_string())
                 .collect();
 
-            let chosen_display_idx = ui::prompt_choice(&choice_labels)?;
-            let (_, chosen) = available[chosen_display_idx];
+            // Auto-route: if all available choices have the label "...", this is
+            // a conditional routing node (not a real player decision). Auto-select
+            // the first available choice silently.
+            let is_auto_route = choice_labels.iter().all(|l| l == "...");
 
-            // Show the player's choice in the chat
-            ui::print_player_choice(&choice_labels[chosen_display_idx])?;
-            ui::print_blank()?;
+            let (chosen_display_idx, chosen) = if is_auto_route {
+                (0, available[0].1)
+            } else {
+                let idx = ui::prompt_choice(&choice_labels)?;
+                (idx, available[idx].1)
+            };
 
-            // Log the player's choice
-            state.message_log.push(LogEntry {
-                sender: Sender::Player,
-                text: choice_labels[chosen_display_idx].clone(),
-                timestamp: Utc::now(),
-            });
+            if !is_auto_route {
+                // Show the player's choice in the chat
+                ui::print_player_choice(&choice_labels[chosen_display_idx])?;
+                ui::print_blank()?;
+
+                // Log the player's choice
+                state.message_log.push(LogEntry {
+                    sender: Sender::Player,
+                    text: choice_labels[chosen_display_idx].clone(),
+                    timestamp: Utc::now(),
+                });
+            }
 
             // Apply flags
             for flag in &chosen.flags_set {

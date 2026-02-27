@@ -11,24 +11,7 @@ pub fn build_story_tree() -> HashMap<String, StoryNode> {
     build_act2(&mut nodes);
     build_act3(&mut nodes);
     build_act4(&mut nodes);
-    // Act 5 will be added in a subsequent commit
-
-    // Placeholder end node (will be removed once all acts are connected)
-    add_node(
-        &mut nodes,
-        StoryNode {
-            id: "placeholder_end".to_string(),
-            messages: vec![LocalizedString::new(
-                "[Story continues in future updates...]",
-                "[La suite arrive bient\u{00f4}t...]",
-            )],
-            choices: vec![],
-            next_node: None,
-            delay: None,
-            ending: None,
-            trust_refusal: None,
-        },
-    );
+    build_act5(&mut nodes);
 
     nodes
 }
@@ -1749,7 +1732,7 @@ fn build_act3(nodes: &mut HashMap<String, StoryNode>) {
                         "Reste dans la colonie. T'es en s\u{00e9}curit\u{00e9} ici. Risque pas ta vie.",
                     ),
                     next_node: "a3_stay_safe".to_string(),
-                    flags_set: vec!["knows_truth".to_string()],
+                    flags_set: vec!["knows_truth".to_string(), "stayed_safe".to_string()],
                     flags_remove: vec![],
                     stat_changes: vec![],
                     conditions: vec![],
@@ -2054,6 +2037,16 @@ fn build_act3(nodes: &mut HashMap<String, StoryNode>) {
                 ),
             ],
             choices: vec![
+                // Auto-route: if player stayed safe, they refused the keycard initially.
+                // After Kai's betrayal, they could still go — but their arc leads elsewhere.
+                Choice {
+                    label: LocalizedString::new("...", "..."),
+                    next_node: "a3_stayed_safe_aftermath".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![Condition::FlagSet("stayed_safe".to_string())],
+                },
                 Choice {
                     label: LocalizedString::new(
                         "Go now. Every hour counts.",
@@ -2063,7 +2056,7 @@ fn build_act3(nodes: &mut HashMap<String, StoryNode>) {
                     flags_set: vec!["has_lab_keycard".to_string()],
                     flags_remove: vec![],
                     stat_changes: vec![],
-                    conditions: vec![],
+                    conditions: vec![Condition::FlagUnset("stayed_safe".to_string())],
                 },
                 Choice {
                     label: LocalizedString::new(
@@ -2074,11 +2067,42 @@ fn build_act3(nodes: &mut HashMap<String, StoryNode>) {
                     flags_set: vec!["has_lab_keycard".to_string()],
                     flags_remove: vec![],
                     stat_changes: vec![("health".to_string(), 1)],
-                    conditions: vec![],
+                    conditions: vec![Condition::FlagUnset("stayed_safe".to_string())],
                 },
             ],
             next_node: None,
             delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // === Stayed safe aftermath — leads to Static ending ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_stayed_safe_aftermath".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "Dr. Osei offered me the keycard again. But I... I can't. After everything that just happened, I can't leave these people. Not now.",
+                    "Le Dr Osei m'a reproposé le badge. Mais je... je peux pas. Après tout ce qui vient de se passer, je peux pas laisser ces gens. Pas maintenant.",
+                ),
+                LocalizedString::new(
+                    "She looked at me for a long time. Then she nodded. 'Then we wait,' she said. 'And we hope.'",
+                    "Elle m'a regardée longuement. Puis elle a hoché la tête. « Alors on attend », elle a dit. « Et on espère. »",
+                ),
+                LocalizedString::new(
+                    "I chose to stay. I chose safety. I chose these people over the mission.",
+                    "J'ai choisi de rester. J'ai choisi la sécurité. J'ai choisi ces gens plutôt que la mission.",
+                ),
+                LocalizedString::new(
+                    "I hope it was the right call.",
+                    "J'espère que c'était le bon choix.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a5_static_buildup".to_string()),
+            delay: Some(600),
             ending: None,
             trust_refusal: None,
         },
@@ -2486,7 +2510,7 @@ fn build_act4(nodes: &mut HashMap<String, StoryNode>) {
                 ),
             ],
             choices: vec![],
-            next_node: Some("placeholder_end".to_string()), // Will connect to Act 5
+            next_node: Some("a5_escape_run".to_string()),
             delay: Some(120),
             ending: None,
             trust_refusal: None,
@@ -2561,7 +2585,7 @@ fn build_act4(nodes: &mut HashMap<String, StoryNode>) {
                 ),
             ],
             choices: vec![],
-            next_node: Some("placeholder_end".to_string()), // Will connect to Act 5
+            next_node: Some("a5_escape_run".to_string()),
             delay: Some(60),
             ending: None,
             trust_refusal: None,
@@ -2591,7 +2615,7 @@ fn build_act4(nodes: &mut HashMap<String, StoryNode>) {
                 ),
             ],
             choices: vec![],
-            next_node: Some("placeholder_end".to_string()), // Will connect to Act 5
+            next_node: Some("a5_inversion_result".to_string()),
             delay: Some(60),
             ending: None,
             trust_refusal: None,
@@ -2599,9 +2623,407 @@ fn build_act4(nodes: &mut HashMap<String, StoryNode>) {
     );
 }
 
+// ── ACT 5 — The End (Days 11-13) ─────────────────────────────
+
+fn build_act5(nodes: &mut HashMap<String, StoryNode>) {
+    use crate::story::EndingType;
+
+    // === PATH A: Escape after shutdown (timed or immediate) ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a5_escape_run".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I'm running. The building is shaking. Chunks of ceiling are falling. The rift is screaming — a sound I'll never forget.",
+                    "Je cours. Le b\u{00e2}timent tremble. Des morceaux de plafond tombent. La br\u{00e8}che hurle \u{2014} un son que j'oublierai jamais.",
+                ),
+                LocalizedString::new(
+                    "Stairs. Up. Up. My lungs are burning. I can hear the collapse starting behind me.",
+                    "Escaliers. En haut. En haut. Mes poumons br\u{00fb}lent. J'entends l'effondrement commencer derri\u{00e8}re moi.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a5_escape_outcome".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a5_escape_outcome".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I made it outside. Barely. The ground caved in behind me. The whole facility just... collapsed into itself.",
+                    "J'ai r\u{00e9}ussi \u{00e0} sortir. De justesse. Le sol s'est effondr\u{00e9} derri\u{00e8}re moi. Tout le centre s'est juste... effondr\u{00e9} sur lui-m\u{00ea}me.",
+                ),
+                LocalizedString::new(
+                    "The sky... the sky is clearing. The permanent twilight is lifting. I can see blue. Actual blue sky.",
+                    "Le ciel... le ciel s'\u{00e9}claircit. Le cr\u{00e9}puscule permanent se l\u{00e8}ve. Je vois du bleu. Du vrai ciel bleu.",
+                ),
+            ],
+            choices: vec![
+                // If looked into rift -> Eshara wins path
+                Choice {
+                    label: LocalizedString::new("...", "..."),
+                    next_node: "a5_eshara_buildup".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![
+                        Condition::FlagSet("looked_into_rift".to_string()),
+                        Condition::StatBelow("morale".to_string(), 4),
+                    ],
+                },
+                // If health critically low -> Gone Dark
+                Choice {
+                    label: LocalizedString::new("...", "..."),
+                    next_node: "a5_gone_dark_buildup".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![Condition::StatBelow("health".to_string(), 4)],
+                },
+                // Default: New Dawn
+                Choice {
+                    label: LocalizedString::new("...", "..."),
+                    next_node: "a5_escape_new_dawn".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![],
+                },
+            ],
+            // Auto-select first available choice (engine picks the first matching)
+            next_node: Some("a5_escape_new_dawn".to_string()), // Fallback
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // New Dawn continuation after escape
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a5_escape_new_dawn".to_string(),
+            messages: vec![LocalizedString::new(
+                "I'm sitting on a hill, watching the world come back to life. And I'm crying. I'm crying and I can't stop.",
+                "J'suis assise sur une colline, \u{00e0} regarder le monde revenir \u{00e0} la vie. Et je pleure. Je pleure et j'arrive pas \u{00e0} m'arr\u{00ea}ter.",
+            )],
+            choices: vec![],
+            next_node: Some("a5_ending_new_dawn".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // === ENDING 1: New Dawn (Good) ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a5_ending_new_dawn".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "The signal from the settlement is still there. I'm heading back. I'm going home. Well... the closest thing to home I have now.",
+                    "Le signal de la colonie est toujours l\u{00e0}. J'y retourne. Je rentre chez moi. Enfin... ce qui s'en rapproche le plus maintenant.",
+                ),
+                LocalizedString::new(
+                    "The phenomena have stopped. No more flickering. No more whispers. The changed ones... I saw one on my way back. She was just standing there, confused. Human again. Scared, but human.",
+                    "Les ph\u{00e9}nom\u{00e8}nes ont cess\u{00e9}. Plus de scintillement. Plus de chuchotements. Les chang\u{00e9}s... j'en ai vu une sur le chemin du retour. Elle \u{00e9}tait l\u{00e0}, confuse. Humaine \u{00e0} nouveau. Effray\u{00e9}e, mais humaine.",
+                ),
+                LocalizedString::new(
+                    "I don't know if the vanished will come back. But the world is healing. And I'm alive.",
+                    "J'sais pas si les disparus reviendront. Mais le monde gu\u{00e9}rit. Et j'suis vivante.",
+                ),
+                LocalizedString::new(
+                    "Thank you. For everything. I wouldn't be here without you. Literally.",
+                    "Merci. Pour tout. Je serais pas l\u{00e0} sans toi. Litt\u{00e9}ralement.",
+                ),
+                LocalizedString::new(
+                    "This is the start of something new. A new dawn. And I'm ready for it.",
+                    "C'est le d\u{00e9}but de quelque chose de nouveau. Une aube nouvelle. Et j'suis pr\u{00ea}te.",
+                ),
+            ],
+            choices: vec![],
+            next_node: None,
+            delay: None,
+            ending: Some(EndingType::NewDawn),
+            trust_refusal: None,
+        },
+    );
+
+    // === PATH B: Inversion result ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a5_inversion_result".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "...",
+                    "...",
+                ),
+                LocalizedString::new(
+                    "I'm... I'm still here. I think. The light is gone. The rift is closed. The chamber is dark and silent.",
+                    "J'suis... j'suis encore l\u{00e0}. Je crois. La lumi\u{00e8}re est partie. La br\u{00e8}che est ferm\u{00e9}e. La salle est sombre et silencieuse.",
+                ),
+                LocalizedString::new(
+                    "I can't move well. Everything hurts. My vision is blurred and there's this ringing in my ears that won't stop.",
+                    "J'arrive pas bien \u{00e0} bouger. Tout me fait mal. Ma vision est floue et y'a cet acouph\u{00e8}ne qui s'arr\u{00ea}te pas.",
+                ),
+                LocalizedString::new(
+                    "But outside... I can hear voices. Real voices. Not whispers. People. Confused, scared, but alive. The vanished — they're coming back.",
+                    "Mais dehors... j'entends des voix. De vraies voix. Pas des chuchotements. Des gens. Confus, effray\u{00e9}s, mais vivants. Les disparus \u{2014} ils reviennent.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a5_ending_signal".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // === ENDING 2: The Signal (Good — but at cost) ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a5_ending_signal".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I did it. The inversion worked. The Eshara is reversing. People are coming back.",
+                    "Je l'ai fait. L'inversion a march\u{00e9}. L'Eshara s'inverse. Les gens reviennent.",
+                ),
+                LocalizedString::new(
+                    "But I'm... I'm not okay. The exposure changed something in me. I can see both worlds now. Layered on top of each other. It's beautiful and horrible.",
+                    "Mais je... j'suis pas bien. L'exposition a chang\u{00e9} quelque chose en moi. Je vois les deux mondes maintenant. Superpos\u{00e9}s. C'est beau et horrible.",
+                ),
+                LocalizedString::new(
+                    "Dr. Osei says I might recover. Or I might not. Time will tell.",
+                    "Le Dr Osei dit que je pourrais gu\u{00e9}rir. Ou pas. Le temps dira.",
+                ),
+                LocalizedString::new(
+                    "But the world is healing. That's what matters. The signal worked. I was the signal.",
+                    "Mais le monde gu\u{00e9}rit. C'est ce qui compte. Le signal a march\u{00e9}. J'\u{00e9}tais le signal.",
+                ),
+                LocalizedString::new(
+                    "Thank you for being my anchor. Through all of it. You kept me human when everything else tried not to.",
+                    "Merci d'avoir \u{00e9}t\u{00e9} mon ancre. \u{00c0} travers tout \u{00e7}a. Tu m'as gard\u{00e9}e humaine quand tout le reste essayait de pas l'\u{00ea}tre.",
+                ),
+            ],
+            choices: vec![],
+            next_node: None,
+            delay: None,
+            ending: Some(EndingType::TheSignal),
+            trust_refusal: None,
+        },
+    );
+
+    // === ENDING 3: Static (Bittersweet — for players who stayed safe) ===
+    // Reached via a3_stay_safe path — need a connecting node
+    // If player stayed safe and never got the keycard, the cascade eventually
+    // destabilizes on its own, damaging the radio
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a5_static_buildup".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "Days passed. The phenomena got worse. The sky was flickering constantly. The changed ones were everywhere.",
+                    "Les jours ont pass\u{00e9}. Les ph\u{00e9}nom\u{00e8}nes ont empir\u{00e9}. Le ciel scintillait sans arr\u{00ea}t. Les chang\u{00e9}s \u{00e9}taient partout.",
+                ),
+                LocalizedString::new(
+                    "Then one night... everything just stopped. A massive flash, and then silence. The cascade burned itself out. Dr. Osei had been right — it was possible, but it took weeks more of suffering.",
+                    "Puis une nuit... tout s'est juste arr\u{00ea}t\u{00e9}. Un flash massif, puis le silence. La cascade s'est \u{00e9}puis\u{00e9}e. Le Dr Osei avait raison \u{2014} c'\u{00e9}tait possible, mais \u{00e7}a a pris des semaines de souffrance en plus.",
+                ),
+                LocalizedString::new(
+                    "But the flash fried the radio. This device. The one connecting us.",
+                    "Mais le flash a grill\u{00e9} la radio. Cet appareil. Celui qui nous connecte.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a5_ending_static".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a5_ending_static".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I'm alive. The settlement survived. We're rebuilding.",
+                    "J'suis vivante. La colonie a surv\u{00e9}cu. On reconstruit.",
+                ),
+                LocalizedString::new(
+                    "But this radio is dying. I can hear the static getting louder. I don't know how much longer we have.",
+                    "Mais cette radio meurt. J'entends le gr\u{00e9}sillement qui monte. J'sais pas combien de temps il nous reste.",
+                ),
+                LocalizedString::new(
+                    "Thank you. For everything. I'll be okay. I think.",
+                    "Merci. Pour tout. \u{00c7}a va aller. Je crois.",
+                ),
+                LocalizedString::new(
+                    "If you can hear this... if anyone can hear this... we're still here. We made it.",
+                    "Si tu m'entends... si quelqu'un m'entend... on est toujours l\u{00e0}. On a surv\u{00e9}cu.",
+                ),
+                LocalizedString::new(
+                    "* krrzzz... *",
+                    "* krrzzz... *",
+                ),
+            ],
+            choices: vec![],
+            next_node: None,
+            delay: None,
+            ending: Some(EndingType::Static),
+            trust_refusal: None,
+        },
+    );
+
+    // === ENDING 4: Gone Dark (Bad — Elara doesn't survive) ===
+    // Reached when health is too low + dangerous choices
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a5_gone_dark_buildup".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I'm... I'm not doing well. The escape took everything I had. I'm bleeding. I think something inside is broken.",
+                    "Je... je vais pas bien. La fuite m'a pris tout ce que j'avais. Je saigne. Je crois qu'un truc \u{00e0} l'int\u{00e9}rieur est cass\u{00e9}.",
+                ),
+                LocalizedString::new(
+                    "I made it out of the building but I can't walk anymore. I'm sitting against a tree, watching the sky clear.",
+                    "J'ai r\u{00e9}ussi \u{00e0} sortir du b\u{00e2}timent mais je peux plus marcher. J'suis assise contre un arbre, \u{00e0} regarder le ciel s'\u{00e9}claircir.",
+                ),
+                LocalizedString::new(
+                    "At least it worked. The phenomena are stopping. That's something.",
+                    "Au moins \u{00e7}a a march\u{00e9}. Les ph\u{00e9}nom\u{00e8}nes s'arr\u{00ea}tent. C'est d\u{00e9}j\u{00e0} \u{00e7}a.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a5_ending_gone_dark".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a5_ending_gone_dark".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I'm tired. So tired.",
+                    "J'suis fatigu\u{00e9}e. Tellement fatigu\u{00e9}e.",
+                ),
+                LocalizedString::new(
+                    "Thank you for being with me. Through all of this. You made me brave.",
+                    "Merci d'avoir \u{00e9}t\u{00e9} avec moi. \u{00c0} travers tout \u{00e7}a. Tu m'as rendue courageuse.",
+                ),
+                LocalizedString::new(
+                    "I'm going to close my eyes. Just for a bit.",
+                    "Je vais fermer les yeux. Juste un peu.",
+                ),
+                LocalizedString::new(
+                    "The sky really is beautiful today.",
+                    "Le ciel est vraiment beau aujourd'hui.",
+                ),
+                LocalizedString::new(
+                    "...",
+                    "...",
+                ),
+            ],
+            choices: vec![],
+            next_node: None,
+            delay: None,
+            ending: Some(EndingType::GoneDark),
+            trust_refusal: None,
+        },
+    );
+
+    // === ENDING 5: The Eshara Wins (Bad — Elara is consumed) ===
+    // Reached when she looked into the rift + low morale
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a5_eshara_buildup".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "Something's wrong. Since I looked into the rift, I feel... different. The whispers aren't background noise anymore. They're words. I can understand them.",
+                    "Quelque chose va pas. Depuis que j'ai regard\u{00e9} dans la br\u{00e8}che, je me sens... diff\u{00e9}rente. Les chuchotements sont plus du bruit de fond. Ce sont des mots. Je les comprends.",
+                ),
+                LocalizedString::new(
+                    "They're saying my name. Over and over. And it feels... warm. Welcoming. Like coming home.",
+                    "Ils disent mon nom. Encore et encore. Et c'est... chaud. Accueillant. Comme rentrer chez soi.",
+                ),
+                LocalizedString::new(
+                    "I don't think I'm afraid anymore. Is that good?",
+                    "Je crois que j'ai plus peur. C'est bien \u{00e7}a ?",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a5_ending_eshara_wins".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a5_ending_eshara_wins".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I can see it all now. Both sides. The membrane between worlds is so thin. So beautiful.",
+                    "Je vois tout maintenant. Les deux c\u{00f4}t\u{00e9}s. La membrane entre les mondes est si fine. Si belle.",
+                ),
+                LocalizedString::new(
+                    "You should see what I see. You should feel what I feel. It's not an ending. It's a beginning.",
+                    "Tu devrais voir ce que je vois. Tu devrais sentir ce que je sens. C'est pas une fin. C'est un d\u{00e9}but.",
+                ),
+                LocalizedString::new(
+                    "The Eshara isn't a catastrophe. It's an invitation.",
+                    "L'Eshara c'est pas une catastrophe. C'est une invitation.",
+                ),
+                LocalizedString::new(
+                    "Come with me. Come with me. Come with me. Come with me. Come with me.",
+                    "Viens avec moi. Viens avec moi. Viens avec moi. Viens avec moi. Viens avec moi.",
+                ),
+                LocalizedString::new(
+                    "* signal terminated *",
+                    "* signal termin\u{00e9} *",
+                ),
+            ],
+            choices: vec![],
+            next_node: None,
+            delay: None,
+            ending: Some(EndingType::TheEsharaWins),
+            trust_refusal: None,
+        },
+    );
+
+    // === ROUTING NOTES ===
+    // a5_escape_outcome uses conditional "..." choices to auto-route:
+    //   - looked_into_rift + low morale -> Eshara Wins
+    //   - low health -> Gone Dark
+    //   - default -> New Dawn
+    // a3_stayed_safe_aftermath routes the stay-safe path to a5_static_buildup -> Static ending
+    // The inversion path goes: a4_inversion -> a5_inversion_result -> a5_ending_signal
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::Language;
 
     #[test]
     fn test_story_tree_has_intro() {
@@ -2635,8 +3057,7 @@ mod tests {
     #[test]
     fn test_act1_node_count() {
         let tree = build_story_tree();
-        // Act 1 should have at least 10 story nodes
-        // (minus 1 for placeholder_end)
+        // All acts combined should have at least 10 nodes
         assert!(
             tree.len() >= 10,
             "Expected at least 10 nodes, got {}",
@@ -2708,11 +3129,63 @@ mod tests {
     #[test]
     fn test_total_node_count() {
         let tree = build_story_tree();
-        // Acts 1+2+3+4 + placeholder should be at least 55 nodes
+        // Acts 1-5 should have at least 60 nodes
         assert!(
-            tree.len() >= 55,
-            "Expected at least 55 nodes, got {}",
+            tree.len() >= 60,
+            "Expected at least 60 nodes, got {}",
             tree.len()
         );
+    }
+
+    #[test]
+    fn test_act5_nodes_exist() {
+        let tree = build_story_tree();
+        assert!(tree.contains_key("a5_escape_run"));
+        assert!(tree.contains_key("a5_escape_outcome"));
+        assert!(tree.contains_key("a5_inversion_result"));
+        assert!(tree.contains_key("a5_static_buildup"));
+        assert!(tree.contains_key("a5_ending_new_dawn"));
+        assert!(tree.contains_key("a5_ending_signal"));
+        assert!(tree.contains_key("a5_ending_static"));
+        assert!(tree.contains_key("a5_ending_gone_dark"));
+        assert!(tree.contains_key("a5_ending_eshara_wins"));
+    }
+
+    #[test]
+    fn test_act5_all_endings_present() {
+        let tree = build_story_tree();
+        let endings: Vec<_> = tree.values().filter(|n| n.ending.is_some()).collect();
+        assert_eq!(
+            endings.len(),
+            5,
+            "Expected 5 ending nodes, got {}",
+            endings.len()
+        );
+    }
+
+    #[test]
+    fn test_stayed_safe_path_reaches_static_ending() {
+        let tree = build_story_tree();
+        // a3_stayed_safe_aftermath should exist and lead to a5_static_buildup
+        let node = tree.get("a3_stayed_safe_aftermath").unwrap();
+        assert_eq!(node.next_node.as_deref(), Some("a5_static_buildup"));
+        // a5_static_buildup leads to a5_ending_static
+        let buildup = tree.get("a5_static_buildup").unwrap();
+        assert_eq!(buildup.next_node.as_deref(), Some("a5_ending_static"));
+    }
+
+    #[test]
+    fn test_escape_outcome_has_conditional_routing() {
+        let tree = build_story_tree();
+        let node = tree.get("a5_escape_outcome").unwrap();
+        assert_eq!(
+            node.choices.len(),
+            3,
+            "a5_escape_outcome should have 3 conditional choices"
+        );
+        // All choices should have "..." labels (auto-route)
+        for choice in &node.choices {
+            assert_eq!(choice.label.get(Language::En), "...");
+        }
     }
 }
