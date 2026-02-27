@@ -1,29 +1,15 @@
-mod game;
-mod i18n;
-mod story;
-mod time;
-mod tui;
-
 use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
 
-use game::{delete_save, load_game, parse_cli_args, save_exists, GameState};
-use i18n::{sys_msg, Language, Msg};
-use story::nodes::build_story_tree;
-use tui::{App, Screen};
-
-/// Global flag set by the Ctrl+C handler
-static INTERRUPTED: AtomicBool = AtomicBool::new(false);
-
-/// Check if Ctrl+C was pressed (used by tui::run)
-pub fn is_interrupted() -> bool {
-    INTERRUPTED.load(Ordering::Relaxed)
-}
+use eshara::game::{self, delete_save, load_game, parse_cli_args, save_exists, GameState};
+use eshara::i18n::{sys_msg, Language, Msg};
+use eshara::story::nodes::build_story_tree;
+use eshara::time;
+use eshara::tui::{self, App, Screen};
 
 fn main() {
     // Install Ctrl+C handler
     let _ = ctrlc::set_handler(move || {
-        INTERRUPTED.store(true, Ordering::Relaxed);
+        eshara::set_interrupted();
     });
 
     if let Err(e) = run() {
