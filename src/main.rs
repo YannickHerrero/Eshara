@@ -35,7 +35,11 @@ fn run() -> io::Result<()> {
 
     // Determine starting state and screen
     let (game_state, start_screen, prompt_options) = if save_exists() {
-        if let Some(existing) = load_game()? {
+        if let Some(existing) = load_game().unwrap_or_else(|_| {
+            // Incompatible or corrupted save — discard it silently
+            let _ = delete_save();
+            None
+        }) {
             let lang = args.language.unwrap_or(existing.language);
             let mut state = existing;
             state.language = lang;
