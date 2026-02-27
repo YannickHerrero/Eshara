@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::thread;
 use std::time::Duration;
 
-use crossterm::{
+use ratatui::crossterm::{
     cursor,
     event::{self, Event, KeyCode},
     style::{Attribute, Color, Stylize},

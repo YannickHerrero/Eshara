@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crossterm::ExecutableCommand;
+use ratatui::crossterm::ExecutableCommand;
 
 use chrono::Utc;
 
@@ -42,7 +42,7 @@ fn main() {
     }
 
     // Ensure terminal is restored on exit
-    let _ = crossterm::terminal::disable_raw_mode();
+    let _ = ratatui::crossterm::terminal::disable_raw_mode();
 }
 
 fn run() -> io::Result<()> {
@@ -350,10 +350,10 @@ fn game_loop(state: &mut GameState, story: &HashMap<String, StoryNode>) -> io::R
                             let mut stdout = io::stdout();
                             let count = choice_labels.len() as u16;
                             for _ in 0..=count {
-                                stdout.execute(crossterm::cursor::MoveUp(1))?;
+                                stdout.execute(ratatui::crossterm::cursor::MoveUp(1))?;
                                 write!(stdout, "\r")?;
-                                stdout.execute(crossterm::terminal::Clear(
-                                    crossterm::terminal::ClearType::CurrentLine,
+                                stdout.execute(ratatui::crossterm::terminal::Clear(
+                                    ratatui::crossterm::terminal::ClearType::CurrentLine,
                                 ))?;
                             }
                             stdout.flush()?;
@@ -509,7 +509,7 @@ fn handle_pause_menu(state: &mut GameState) -> io::Result<PauseMenuResult> {
 /// Handle graceful exit on Ctrl+C: save, show message, restore terminal
 fn handle_graceful_exit(state: &mut GameState) -> io::Result<()> {
     // Restore terminal state (in case we were in raw mode)
-    let _ = crossterm::terminal::disable_raw_mode();
+    let _ = ratatui::crossterm::terminal::disable_raw_mode();
 
     let lang = state.language;
 
