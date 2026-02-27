@@ -9,7 +9,8 @@ pub fn build_story_tree() -> HashMap<String, StoryNode> {
 
     build_act1(&mut nodes);
     build_act2(&mut nodes);
-    // Acts 3-5 will be added in subsequent commits
+    build_act3(&mut nodes);
+    // Acts 4-5 will be added in subsequent commits
 
     // Placeholder end node (will be removed once all acts are connected)
     add_node(
@@ -1571,8 +1572,615 @@ fn build_act2(nodes: &mut HashMap<String, StoryNode>) {
                 "Bonne nuit. La premi\u{00e8}re vraie bonne nuit en trois mois.",
             )],
             choices: vec![],
-            next_node: Some("placeholder_end".to_string()), // Will connect to Act 3
-            delay: Some(300),                               // 5 min
+            next_node: Some("a3_morning".to_string()),
+            delay: Some(300), // 5 min
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+}
+
+// ── ACT 3 — The Discovery (Days 5-7) ─────────────────────────
+
+fn build_act3(nodes: &mut HashMap<String, StoryNode>) {
+    // === DAY 5 — Dr. Osei's revelation ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_morning".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "Morning. I actually slept. Like, really slept. I forgot what that felt like.",
+                    "Bonjour. J'ai vraiment dormi. Genre, vraiment. J'avais oubli\u{00e9} ce que \u{00e7}a faisait.",
+                ),
+                LocalizedString::new(
+                    "Dr. Osei wants to see me. She said it's urgent. Something about the Helios facility.",
+                    "Le Dr Osei veut me voir. Elle dit que c'est urgent. Un truc \u{00e0} propos du centre Helios.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a3_osei_talk".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_osei_talk".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I just had the most intense conversation of my life.",
+                    "Je viens d'avoir la conversation la plus intense de ma vie.",
+                ),
+                LocalizedString::new(
+                    "Dr. Osei used to work for the same organization that funded Helios. She was at a sister facility — Project MIROIR was a joint operation.",
+                    "Le Dr Osei travaillait pour la m\u{00ea}me organisation qui finan\u{00e7}ait Helios. Elle \u{00e9}tait dans un centre partenaire \u{2014} le Projet MIROIR \u{00e9}tait une op\u{00e9}ration conjointe.",
+                ),
+                LocalizedString::new(
+                    "She says the Eshara wasn't natural. It was a resonance experiment that went catastrophically wrong. They were trying to open a... a gateway. To somewhere else.",
+                    "Elle dit que l'Eshara \u{00e9}tait pas naturel. C'\u{00e9}tait une exp\u{00e9}rience de r\u{00e9}sonance qui a catastrophiquement d\u{00e9}raill\u{00e9}. Ils essayaient d'ouvrir un... un portail. Vers ailleurs.",
+                ),
+                LocalizedString::new(
+                    "The 'changed' people? She thinks they're partially shifted into that other place. Not fully here anymore.",
+                    "Les gens 'chang\u{00e9}s' ? Elle pense qu'ils sont partiellement d\u{00e9}cal\u{00e9}s vers cet autre endroit. Plus enti\u{00e8}rement ici.",
+                ),
+            ],
+            choices: vec![
+                Choice {
+                    label: LocalizedString::new(
+                        "Can it be reversed? Is there a way to fix this?",
+                        "Est-ce qu'on peut inverser \u{00e7}a ? Y'a un moyen de r\u{00e9}parer ?",
+                    ),
+                    next_node: "a3_osei_solution".to_string(),
+                    flags_set: vec!["asked_about_reversal".to_string()],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![],
+                },
+                Choice {
+                    label: LocalizedString::new(
+                        "This is huge. Do the other survivors know?",
+                        "C'est \u{00e9}norme. Les autres survivants sont au courant ?",
+                    ),
+                    next_node: "a3_osei_secret".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![],
+                },
+            ],
+            next_node: None,
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_osei_solution".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "She thinks so. Maybe. The resonance cascade is still running — that's what's causing the phenomena to get worse. If it could be shut down at the source...",
+                    "Elle pense que oui. Peut-\u{00ea}tre. La cascade de r\u{00e9}sonance tourne toujours \u{2014} c'est ce qui fait empirer les ph\u{00e9}nom\u{00e8}nes. Si on pouvait l'arr\u{00ea}ter \u{00e0} la source...",
+                ),
+                LocalizedString::new(
+                    "The source is Helios. My facility. The one I just left. The locked door — Project MIROIR — that's where the equipment is.",
+                    "La source c'est Helios. Mon centre. Celui que je viens de quitter. La porte verrouill\u{00e9}e \u{2014} Projet MIROIR \u{2014} c'est l\u{00e0} que l'\u{00e9}quipement est.",
+                ),
+                LocalizedString::new(
+                    "She has a keycard. She kept it. She says if someone could get back there and shut down the resonance chamber, it might stop the cascade. Maybe even reverse it.",
+                    "Elle a un badge. Elle l'a gard\u{00e9}. Elle dit que si quelqu'un pouvait retourner l\u{00e0}-bas et \u{00e9}teindre la chambre de r\u{00e9}sonance, \u{00e7}a pourrait arr\u{00ea}ter la cascade. Peut-\u{00ea}tre m\u{00ea}me l'inverser.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a3_keycard_decision".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_osei_secret".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "No. She's kept it quiet. She says people here are barely holding on — if they found out it was man-made, it could tear the community apart.",
+                    "Non. Elle a gard\u{00e9} \u{00e7}a secret. Elle dit que les gens ici tiennent \u{00e0} peine \u{2014} s'ils apprenaient que c'\u{00e9}tait artificiel, \u{00e7}a pourrait d\u{00e9}truire la communaut\u{00e9}.",
+                ),
+                LocalizedString::new(
+                    "But she also said there might be a way to stop it. She has a keycard to the MIROIR lab at Helios. Someone would need to go back and shut down the resonance equipment.",
+                    "Mais elle a aussi dit qu'il y avait peut-\u{00ea}tre un moyen d'arr\u{00ea}ter \u{00e7}a. Elle a un badge pour le labo MIROIR \u{00e0} Helios. Quelqu'un devrait retourner l\u{00e0}-bas et \u{00e9}teindre l'\u{00e9}quipement de r\u{00e9}sonance.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a3_keycard_decision".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // === KEY DECISION: Go back to Helios or stay safe ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_keycard_decision".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "So here's the thing. She's offering me the keycard. She can't go herself — she's needed here to keep the settlement running.",
+                    "Alors voil\u{00e0}. Elle me propose le badge. Elle peut pas y aller elle-m\u{00ea}me \u{2014} elle est indispensable ici pour faire tourner la colonie.",
+                ),
+                LocalizedString::new(
+                    "Going back to Helios means days of travel through increasingly dangerous territory. Alone. To a facility I barely explored.",
+                    "Retourner \u{00e0} Helios veut dire des jours de voyage \u{00e0} travers un territoire de plus en plus dangereux. Seule. Vers un centre que j'ai \u{00e0} peine explor\u{00e9}.",
+                ),
+                LocalizedString::new(
+                    "Or I could stay here. Safe. Alive. And hope the cascade burns itself out eventually.",
+                    "Ou je pourrais rester ici. En s\u{00e9}curit\u{00e9}. En vie. Et esp\u{00e9}rer que la cascade s'\u{00e9}puise d'elle-m\u{00ea}me.",
+                ),
+                LocalizedString::new(
+                    "What do you think?",
+                    "T'en penses quoi ?",
+                ),
+            ],
+            choices: vec![
+                Choice {
+                    label: LocalizedString::new(
+                        "Take the keycard. If there's a chance to stop this, you have to try.",
+                        "Prends le badge. S'il y a une chance d'arr\u{00ea}ter \u{00e7}a, faut que t'essaies.",
+                    ),
+                    next_node: "a3_take_keycard".to_string(),
+                    flags_set: vec!["has_lab_keycard".to_string(), "knows_truth".to_string()],
+                    flags_remove: vec![],
+                    stat_changes: vec![("trust_level".to_string(), 1)],
+                    conditions: vec![],
+                },
+                Choice {
+                    label: LocalizedString::new(
+                        "Stay in the settlement. You're safe here. Don't risk your life.",
+                        "Reste dans la colonie. T'es en s\u{00e9}curit\u{00e9} ici. Risque pas ta vie.",
+                    ),
+                    next_node: "a3_stay_safe".to_string(),
+                    flags_set: vec!["knows_truth".to_string()],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![],
+                },
+            ],
+            next_node: None,
+            delay: None,
+            ending: None,
+            // Trust refusal: if trust is low, Elara decides on her own
+            trust_refusal: Some(TrustRefusal {
+                min_trust: 3,
+                refusal_node: "a3_elara_decides_keycard".to_string(),
+                refusal_message: LocalizedString::new(
+                    "Look... I appreciate your input, but I need to think about this myself. This is too big for me to just follow someone else's call. Give me a moment.",
+                    "\u{00c9}coute... j'appr\u{00e9}cie ton avis, mais faut que j'y r\u{00e9}fl\u{00e9}chisse moi-m\u{00ea}me. C'est trop gros pour que je suive juste l'avis de quelqu'un d'autre. Laisse-moi un moment.",
+                ),
+            }),
+        },
+    );
+
+    // Trust refusal: Elara decides on her own
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_elara_decides_keycard".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I thought about it. I'm taking the keycard. I can't sit here knowing I might be the only person who can stop this.",
+                    "J'y ai r\u{00e9}fl\u{00e9}chi. Je prends le badge. Je peux pas rester l\u{00e0} en sachant que je suis peut-\u{00ea}tre la seule personne qui peut arr\u{00ea}ter \u{00e7}a.",
+                ),
+                LocalizedString::new(
+                    "I know you might not agree. But this is my choice.",
+                    "Je sais que t'es peut-\u{00ea}tre pas d'accord. Mais c'est mon choix.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a3_preparation".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // === Branch: Take the keycard ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_take_keycard".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "You're right. If there's even a small chance... I have to try. For everyone.",
+                    "T'as raison. S'il y a ne serait-ce qu'une petite chance... faut que j'essaie. Pour tout le monde.",
+                ),
+                LocalizedString::new(
+                    "Dr. Osei gave me the keycard and a rough schematic of the MIROIR lab. She thinks the main control console is in the deepest chamber.",
+                    "Le Dr Osei m'a donn\u{00e9} le badge et un sch\u{00e9}ma approximatif du labo MIROIR. Elle pense que la console principale est dans la salle la plus profonde.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a3_preparation".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // === Branch: Stay safe ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_stay_safe".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "Yeah. Yeah, you're right. I almost died getting here. I can't just throw that away on a suicide mission.",
+                    "Ouais. Ouais, t'as raison. J'ai failli mourir en venant ici. Je peux pas gaspiller \u{00e7}a sur une mission suicide.",
+                ),
+                LocalizedString::new(
+                    "Dr. Osei looked disappointed but she understood. She said she'd keep looking for another way.",
+                    "Le Dr Osei avait l'air d\u{00e9}\u{00e7}ue mais elle a compris. Elle dit qu'elle cherchera un autre moyen.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a3_day6".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // === Preparation (keycard path) ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_preparation".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I'm spending today preparing. Dr. Osei is loading me up with supplies. Better food, water, a proper first aid kit.",
+                    "Je passe la journ\u{00e9}e \u{00e0} me pr\u{00e9}parer. Le Dr Osei me charge en provisions. De la meilleure nourriture, de l'eau, une vraie trousse de premiers soins.",
+                ),
+                LocalizedString::new(
+                    "She also gave me something else. A weapon. An old hunting knife. 'Just in case,' she said.",
+                    "Elle m'a aussi donn\u{00e9} autre chose. Une arme. Un vieux couteau de chasse. \u{00ab} Au cas o\u{00f9} \u{00bb}, elle a dit.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a3_day6".to_string()),
+            delay: Some(180),
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // === DAY 6 — The betrayal/twist ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_day6".to_string(),
+            messages: vec![LocalizedString::new(
+                "Something happened. Something bad.",
+                "Y'a eu un truc. Un mauvais truc.",
+            )],
+            choices: vec![],
+            next_node: Some("a3_kai_twist".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_kai_twist".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "Kai showed up at the settlement.",
+                    "Ka\u{00ef} est arriv\u{00e9} \u{00e0} la colonie.",
+                ),
+                LocalizedString::new(
+                    "But he didn't come alone. He brought a group. And they're not friendly. They want the generator. They want the food. They want control.",
+                    "Mais il est pas venu seul. Il a amen\u{00e9} un groupe. Et ils sont pas amicaux. Ils veulent le g\u{00e9}n\u{00e9}rateur. Ils veulent la nourriture. Ils veulent le contr\u{00f4}le.",
+                ),
+                LocalizedString::new(
+                    "He was scouting for them all along. All that 'nice guy alone in the wild' stuff... it was an act.",
+                    "Il faisait du rep\u{00e9}rage pour eux depuis le d\u{00e9}but. Tout ce num\u{00e9}ro du \u{00ab} mec sympa seul dans la nature \u{00bb}... c'\u{00e9}tait du cin\u{00e9}.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a3_kai_confrontation".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_kai_confrontation".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "Dr. Osei is trying to negotiate. The settlement has weapons but they're outnumbered. This could get ugly fast.",
+                    "Le Dr Osei essaie de n\u{00e9}gocier. La colonie a des armes mais ils sont en inf\u{00e9}riorit\u{00e9} num\u{00e9}rique. \u{00c7}a pourrait vite d\u{00e9}g\u{00e9}n\u{00e9}rer.",
+                ),
+                LocalizedString::new(
+                    "Kai saw me. He had the nerve to smile. Like we were old friends.",
+                    "Ka\u{00ef} m'a vue. Il a eu le culot de sourire. Comme si on \u{00e9}tait de vieux amis.",
+                ),
+            ],
+            choices: vec![
+                Choice {
+                    label: LocalizedString::new(
+                        "Try to talk to Kai directly. Appeal to whatever humanity he has left.",
+                        "Essaie de parler \u{00e0} Ka\u{00ef} directement. Fais appel \u{00e0} ce qui reste d'humanit\u{00e9} en lui.",
+                    ),
+                    next_node: "a3_talk_kai".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![Condition::FlagSet("kai_ally".to_string())],
+                },
+                Choice {
+                    label: LocalizedString::new(
+                        "Help Dr. Osei defend the settlement. Stand your ground.",
+                        "Aide le Dr Osei \u{00e0} d\u{00e9}fendre la colonie. Tiens bon.",
+                    ),
+                    next_node: "a3_defend".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![],
+                },
+                Choice {
+                    label: LocalizedString::new(
+                        "Use the chaos to slip away. You have a mission — get to Helios.",
+                        "Profite du chaos pour t'\u{00e9}clipser. T'as une mission \u{2014} va \u{00e0} Helios.",
+                    ),
+                    next_node: "a3_slip_away".to_string(),
+                    flags_set: vec!["abandoned_settlement".to_string()],
+                    flags_remove: vec![],
+                    stat_changes: vec![("morale".to_string(), -2)],
+                    conditions: vec![Condition::FlagSet("has_lab_keycard".to_string())],
+                },
+            ],
+            next_node: None,
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // Talk to Kai
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_talk_kai".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I confronted him. Told him this wasn't who he had to be. That we traveled together, that he shared food with me.",
+                    "Je l'ai confront\u{00e9}. Je lui ai dit que c'\u{00e9}tait pas oblig\u{00e9} d'\u{00ea}tre comme \u{00e7}a. Qu'on avait voyag\u{00e9} ensemble, qu'il avait partag\u{00e9} sa bouffe avec moi.",
+                ),
+                LocalizedString::new(
+                    "He hesitated. I could see it in his eyes. Then his group leader called him back and the moment was gone.",
+                    "Il a h\u{00e9}sit\u{00e9}. Je l'ai vu dans ses yeux. Puis le chef de son groupe l'a rappel\u{00e9} et le moment est pass\u{00e9}.",
+                ),
+                LocalizedString::new(
+                    "But the delay was enough. Dr. Osei had time to rally the defenders. Kai's group backed off when they saw the rifles. For now.",
+                    "Mais le d\u{00e9}lai a suffi. Le Dr Osei a eu le temps de rallier les d\u{00e9}fenseurs. Le groupe de Ka\u{00ef} a recul\u{00e9} quand ils ont vu les fusils. Pour l'instant.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a3_aftermath".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // Defend the settlement
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_defend".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "We held them off. Barely. There were tense moments. Someone fired a warning shot. Kai's group realized we weren't easy targets.",
+                    "On les a repouss\u{00e9}s. De justesse. Y'a eu des moments tendus. Quelqu'un a tir\u{00e9} un coup de semonce. Le groupe de Ka\u{00ef} a r\u{00e9}alis\u{00e9} qu'on \u{00e9}tait pas des proies faciles.",
+                ),
+                LocalizedString::new(
+                    "They pulled back to the tree line. But they're still out there. Watching.",
+                    "Ils se sont repli\u{00e9}s en lisi\u{00e8}re de for\u{00ea}t. Mais ils sont toujours l\u{00e0}. \u{00c0} observer.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a3_aftermath".to_string()),
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // Slip away
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_slip_away".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I grabbed my pack and slipped out the back while everyone was focused on Kai's group. I feel terrible about it.",
+                    "J'ai attrap\u{00e9} mon sac et j'me suis faufil\u{00e9}e par derri\u{00e8}re pendant que tout le monde \u{00e9}tait focalis\u{00e9} sur le groupe de Ka\u{00ef}. Je me sens horrible.",
+                ),
+                LocalizedString::new(
+                    "But the mission matters more. If I can stop the Eshara, none of this fighting matters anyway.",
+                    "Mais la mission compte plus. Si je peux arr\u{00ea}ter l'Eshara, tout ce conflit n'aura plus d'importance.",
+                ),
+                LocalizedString::new(
+                    "At least... that's what I'm telling myself.",
+                    "Au moins... c'est ce que je me dis.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a3_day7".to_string()),
+            delay: Some(180),
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // === Aftermath ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_aftermath".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "The settlement is tense. People are scared. Dr. Osei thinks Kai's group will be back, probably with more people.",
+                    "La colonie est tendue. Les gens ont peur. Le Dr Osei pense que le groupe de Ka\u{00ef} va revenir, probablement avec plus de monde.",
+                ),
+                LocalizedString::new(
+                    "She pulled me aside. She says time is running out — the phenomena are accelerating. If I'm going to go back to Helios, it has to be now.",
+                    "Elle m'a prise \u{00e0} part. Elle dit que le temps presse \u{2014} les ph\u{00e9}nom\u{00e8}nes s'acc\u{00e9}l\u{00e8}rent. Si je dois retourner \u{00e0} Helios, c'est maintenant.",
+                ),
+            ],
+            choices: vec![
+                Choice {
+                    label: LocalizedString::new(
+                        "Go now. Every hour counts.",
+                        "Pars maintenant. Chaque heure compte.",
+                    ),
+                    next_node: "a3_day7".to_string(),
+                    flags_set: vec!["has_lab_keycard".to_string()],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![],
+                },
+                Choice {
+                    label: LocalizedString::new(
+                        "Stay one more night to rest and prepare. You'll need your strength.",
+                        "Reste une nuit de plus pour te reposer et te pr\u{00e9}parer. T'auras besoin de tes forces.",
+                    ),
+                    next_node: "a3_one_more_night".to_string(),
+                    flags_set: vec!["has_lab_keycard".to_string()],
+                    flags_remove: vec![],
+                    stat_changes: vec![("health".to_string(), 1)],
+                    conditions: vec![],
+                },
+            ],
+            next_node: None,
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_one_more_night".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "One more night. I'll leave at first light.",
+                    "Une nuit de plus. Je pars aux premi\u{00e8}res lueurs.",
+                ),
+                LocalizedString::new(
+                    "Dr. Osei went over the schematics with me again. I think I understand the system. Find the resonance chamber, shut down the primary oscillator, then seal the rift.",
+                    "Le Dr Osei a revu les sch\u{00e9}mas avec moi. Je crois que je comprends le syst\u{00e8}me. Trouver la chambre de r\u{00e9}sonance, \u{00e9}teindre l'oscillateur primaire, puis sceller la br\u{00e8}che.",
+                ),
+                LocalizedString::new(
+                    "'Seal the rift.' She said it like it was a normal thing to say.",
+                    "\u{00ab} Sceller la br\u{00e8}che. \u{00bb} Elle a dit \u{00e7}a comme si c'\u{00e9}tait un truc normal.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("a3_day7".to_string()),
+            delay: Some(180),
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // === DAY 7 — Heading back ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_day7".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I'm on the move. Heading south, back toward Helios. The landscape feels different now. Worse.",
+                    "J'suis en route. Direction sud, retour vers Helios. Le paysage semble diff\u{00e9}rent maintenant. Pire.",
+                ),
+                LocalizedString::new(
+                    "The sky flickers every few hours now. And the whispers are constant. Not louder, just... always there. Like background noise.",
+                    "Le ciel scintille toutes les quelques heures maintenant. Et les chuchotements sont constants. Pas plus forts, juste... toujours l\u{00e0}. Comme un bruit de fond.",
+                ),
+                LocalizedString::new(
+                    "I saw a group of changed ones in the distance. They were walking in a perfect circle. Round and round. It was the most disturbing thing I've ever seen.",
+                    "J'ai vu un groupe de chang\u{00e9}s au loin. Ils marchaient en cercle parfait. Encore et encore. C'\u{00e9}tait la chose la plus perturbante que j'ai jamais vue.",
+                ),
+                LocalizedString::new(
+                    "I'm scared. But I'm not stopping.",
+                    "J'ai peur. Mais je m'arr\u{00ea}te pas.",
+                ),
+            ],
+            choices: vec![
+                Choice {
+                    label: LocalizedString::new(
+                        "You're the bravest person I know. Keep going.",
+                        "T'es la personne la plus courageuse que je connaisse. Continue.",
+                    ),
+                    next_node: "a3_end".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![("morale".to_string(), 2), ("trust_level".to_string(), 1)],
+                    conditions: vec![],
+                },
+                Choice {
+                    label: LocalizedString::new(
+                        "Stay away from the changed ones. Don't let them see you.",
+                        "Reste loin des chang\u{00e9}s. Les laisse pas te voir.",
+                    ),
+                    next_node: "a3_end".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![],
+                },
+            ],
+            next_node: None,
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        },
+    );
+
+    // === END OF ACT 3 ===
+    add_node(
+        nodes,
+        StoryNode {
+            id: "a3_end".to_string(),
+            messages: vec![
+                LocalizedString::new(
+                    "I need to rest. Tomorrow I should reach Helios. This time I'm going in with a plan.",
+                    "Faut que je me repose. Demain je devrais atteindre Helios. Cette fois j'y vais avec un plan.",
+                ),
+                LocalizedString::new(
+                    "Talk tomorrow. I hope.",
+                    "On se parle demain. J'esp\u{00e8}re.",
+                ),
+            ],
+            choices: vec![],
+            next_node: Some("placeholder_end".to_string()), // Will connect to Act 4
+            delay: Some(300),
             ending: None,
             trust_refusal: None,
         },
@@ -1650,12 +2258,31 @@ mod tests {
     }
 
     #[test]
+    fn test_act3_nodes_exist() {
+        let tree = build_story_tree();
+        assert!(tree.contains_key("a3_morning"));
+        assert!(tree.contains_key("a3_osei_talk"));
+        assert!(tree.contains_key("a3_keycard_decision"));
+        assert!(tree.contains_key("a3_kai_twist"));
+        assert!(tree.contains_key("a3_end"));
+    }
+
+    #[test]
+    fn test_act3_has_conditional_choices() {
+        let tree = build_story_tree();
+        let confrontation = tree.get("a3_kai_confrontation").unwrap();
+        // "Talk to Kai" requires kai_ally flag
+        let talk_choice = &confrontation.choices[0];
+        assert!(!talk_choice.conditions.is_empty());
+    }
+
+    #[test]
     fn test_total_node_count() {
         let tree = build_story_tree();
-        // Acts 1+2 + placeholder should be at least 30 nodes
+        // Acts 1+2+3 + placeholder should be at least 45 nodes
         assert!(
-            tree.len() >= 30,
-            "Expected at least 30 nodes, got {}",
+            tree.len() >= 45,
+            "Expected at least 45 nodes, got {}",
             tree.len()
         );
     }
