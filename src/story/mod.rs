@@ -2,10 +2,14 @@ pub mod endings;
 pub mod nodes;
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use crate::i18n::LocalizedString;
+
+/// The default story JSON, embedded at compile time from data/story.json.
+const EMBEDDED_STORY: &str = include_str!("../../data/story.json");
 
 /// Localized ending metadata (title + description)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,8 +24,32 @@ pub struct EndingInfo {
 pub struct StoryData {
     /// All story nodes keyed by their unique id
     pub nodes: HashMap<String, StoryNode>,
-    /// Ending metadata keyed by the EndingType variant name
+    /// Ending metadata keyed by the EndingType variant name (e.g. "NewDawn", "Static")
     pub endings: HashMap<String, EndingInfo>,
+}
+
+impl StoryData {
+    /// Look up ending info by EndingType
+    pub fn ending_info(&self, ending: &EndingType) -> Option<&EndingInfo> {
+        let key = format!("{:?}", ending);
+        self.endings.get(&key)
+    }
+}
+
+/// Load the story data.
+///
+/// 1. If `data/story.json` exists on disk (next to the working directory), load it.
+/// 2. Otherwise, fall back to the compile-time embedded copy.
+///
+/// Panics if the JSON is malformed (this is a fatal configuration error).
+pub fn load_story() -> StoryData {
+    let external = Path::new("data/story.json");
+    if external.exists() {
+        let json = std::fs::read_to_string(external).expect("Failed to read data/story.json");
+        serde_json::from_str(&json).expect("Failed to parse data/story.json")
+    } else {
+        serde_json::from_str(EMBEDDED_STORY).expect("Failed to parse embedded story data")
+    }
 }
 
 /// A condition that must be met for a choice to be available
