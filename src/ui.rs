@@ -1,10 +1,21 @@
 use std::io::{self, Write};
+use std::thread;
+use std::time::Duration;
 
 use crossterm::{
     cursor,
+    event::{self, Event, KeyCode, KeyEvent},
     style::{self, Attribute, Color, Stylize},
     terminal, ExecutableCommand,
 };
+
+use crate::i18n::{sys_msg, Language, Msg};
+
+/// Default typewriter delay per character in milliseconds
+const DEFAULT_CHAR_DELAY_MS: u64 = 60;
+
+/// Duration to show the "typing..." indicator before each message
+const TYPING_INDICATOR_MS: u64 = 1500;
 
 /// Terminal width to use for alignment calculations
 fn term_width() -> u16 {
@@ -19,21 +30,131 @@ pub fn clear_screen() -> io::Result<()> {
     Ok(())
 }
 
-/// Print Elara's message: left-aligned, cyan, with "Elara:" prefix
+/// Check if a key has been pressed (non-blocking)
+fn key_pressed() -> bool {
+    if event::poll(Duration::from_millis(0)).unwrap_or(false) {
+        if let Ok(Event::Key(_)) = event::read() {
+            return true;
+        }
+    }
+    false
+}
+
+/// Show the animated "Elara is typing..." indicator
+/// The dots cycle: . .. ... and back
+/// Can be skipped by pressing any key
+pub fn show_typing_indicator(lang: Language) -> io::Result<()> {
+    let mut stdout = io::stdout();
+    let base_text = sys_msg(Msg::ElaraTyping, lang);
+
+    // Enter raw mode so we can detect keypresses without blocking
+    terminal::enable_raw_mode()?;
+
+    let total_ms = TYPING_INDICATOR_MS;
+    let frame_ms: u64 = 400;
+    let frames = total_ms / frame_ms;
+
+    for i in 0..frames {
+        // Check for keypress to skip
+        if key_pressed() {
+            // Clear the typing indicator line
+            write!(stdout, "\r{}\r", " ".repeat(base_text.len() + 10))?;
+            stdout.flush()?;
+            terminal::disable_raw_mode()?;
+            return Ok(());
+        }
+
+        let dots = ".".repeat((i as usize % 3) + 1);
+        let padding = " ".repeat(3 - dots.len());
+        write!(
+            stdout,
+            "\r  {}{}{}",
+            base_text.with(Color::DarkGrey).attribute(Attribute::Italic),
+            dots.with(Color::DarkGrey),
+            padding
+        )?;
+        stdout.flush()?;
+        thread::sleep(Duration::from_millis(frame_ms));
+    }
+
+    // Clear the typing indicator line
+    write!(stdout, "\r{}\r", " ".repeat(base_text.len() + 10))?;
+    stdout.flush()?;
+
+    terminal::disable_raw_mode()?;
+    Ok(())
+}
+
+/// Print Elara's message with typewriter effect: characters appear one by one
+/// Can be skipped by pressing any key (remaining text appears instantly)
+pub fn print_elara_message_animated(text: &str) -> io::Result<()> {
+    let mut stdout = io::stdout();
+    let prefix = "  Elara: ";
+
+    // Enter raw mode for keypress detection
+    terminal::enable_raw_mode()?;
+
+    write!(
+        stdout,
+        "{}",
+        prefix.with(Color::Cyan).attribute(Attribute::Bold)
+    )?;
+    stdout.flush()?;
+
+    let mut skipped = false;
+    let mut col = prefix.len();
+
+    for ch in text.chars() {
+        if !skipped && key_pressed() {
+            skipped = true;
+        }
+
+        if ch == '\n' {
+            writeln!(stdout)?;
+            write!(stdout, "         ")?; // indent continuation
+            col = 9;
+        } else {
+            write!(stdout, "{}", ch.to_string().with(Color::Cyan))?;
+            col += 1;
+        }
+        stdout.flush()?;
+
+        if !skipped {
+            thread::sleep(Duration::from_millis(DEFAULT_CHAR_DELAY_MS));
+        }
+    }
+    writeln!(stdout)?;
+    stdout.flush()?;
+
+    terminal::disable_raw_mode()?;
+
+    let _ = col; // suppress unused warning
+    Ok(())
+}
+
+/// Print Elara's message without animation (for backlog replay)
 pub fn print_elara_message(text: &str) -> io::Result<()> {
     let mut stdout = io::stdout();
     let prefix = "  Elara: ".with(Color::Cyan).attribute(Attribute::Bold);
     write!(stdout, "{}", prefix)?;
 
-    // Handle multi-line messages with proper indentation
     let lines: Vec<&str> = text.lines().collect();
     for (i, line) in lines.iter().enumerate() {
         if i > 0 {
-            write!(stdout, "         ")?; // indent continuation lines
+            write!(stdout, "         ")?;
         }
         writeln!(stdout, "{}", line.with(Color::Cyan))?;
     }
     stdout.flush()?;
+    Ok(())
+}
+
+/// Show typing indicator then print message with typewriter effect
+pub fn elara_says(text: &str, lang: Language) -> io::Result<()> {
+    show_typing_indicator(lang)?;
+    print_elara_message_animated(text)?;
+    // Small pause after message for readability
+    thread::sleep(Duration::from_millis(300));
     Ok(())
 }
 
@@ -75,6 +196,40 @@ pub fn print_system_message(text: &str) -> io::Result<()> {
         )?;
     }
     stdout.flush()?;
+    Ok(())
+}
+
+/// Print a system message with typewriter effect (for atmospheric intro)
+pub fn print_system_message_animated(text: &str) -> io::Result<()> {
+    let mut stdout = io::stdout();
+    let width = term_width() as usize;
+
+    terminal::enable_raw_mode()?;
+    let mut skipped = false;
+
+    for line in text.lines() {
+        let padding = if line.len() < width {
+            (width - line.len()) / 2
+        } else {
+            0
+        };
+        write!(stdout, "{}", " ".repeat(padding))?;
+
+        for ch in line.chars() {
+            if !skipped && key_pressed() {
+                skipped = true;
+            }
+            write!(stdout, "{}", ch.to_string().with(Color::DarkGrey))?;
+            stdout.flush()?;
+            if !skipped {
+                thread::sleep(Duration::from_millis(40));
+            }
+        }
+        writeln!(stdout)?;
+    }
+    stdout.flush()?;
+
+    terminal::disable_raw_mode()?;
     Ok(())
 }
 
@@ -185,9 +340,11 @@ pub fn print_banner() -> io::Result<()> {
     Ok(())
 }
 
-// Silence unused import warnings for style — it's used via the Stylize trait
+// Silence unused import warnings for items used indirectly
 const _: () = {
-    fn _use_style() {
+    fn _uses() {
         let _ = std::mem::size_of::<style::Color>();
+        let _ = std::mem::size_of::<KeyCode>();
+        let _ = std::mem::size_of::<KeyEvent>();
     }
 };
