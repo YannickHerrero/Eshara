@@ -41,20 +41,43 @@ fn run() -> io::Result<()> {
         if let Some(existing) = load_game()? {
             let lang = existing.language;
             ui::print_banner()?;
-            ui::print_system_message(sys_msg(Msg::ContinueOrNew, lang))?;
-            ui::print_blank()?;
 
-            let choices = vec![
-                sys_msg(Msg::ContinueOption, lang).to_string(),
-                sys_msg(Msg::NewGameOption, lang).to_string(),
-            ];
-            let choice = ui::prompt_choice(&choices)?;
-
-            if choice == 0 {
-                existing
+            // Check if Elara is still waiting
+            if time::is_waiting(&existing) {
+                let mut s = existing;
+                let should_continue = time::handle_waiting(&mut s)?;
+                if !should_continue {
+                    // Player chose to quit and come back later
+                    save_game(&s)?;
+                    return Ok(());
+                }
+                save_game(&s)?;
+                s
             } else {
-                let lang = select_language(args.language)?;
-                start_new_game(lang)?
+                // If there was a wait that's now complete, clear it
+                let mut s = existing;
+                if s.waiting_until.is_some() {
+                    s.waiting_until = None;
+                    // Bell notification — Elara is back
+                    print!("\x07");
+                    save_game(&s)?;
+                }
+
+                ui::print_system_message(sys_msg(Msg::ContinueOrNew, lang))?;
+                ui::print_blank()?;
+
+                let choices = vec![
+                    sys_msg(Msg::ContinueOption, lang).to_string(),
+                    sys_msg(Msg::NewGameOption, lang).to_string(),
+                ];
+                let choice = ui::prompt_choice(&choices)?;
+
+                if choice == 0 {
+                    s
+                } else {
+                    let lang = select_language(args.language)?;
+                    start_new_game(lang)?
+                }
             }
         } else {
             let lang = select_language(args.language)?;
@@ -150,6 +173,34 @@ fn game_loop(state: &mut GameState, story: &HashMap<String, StoryNode>) -> io::R
             break;
         }
 
+        // Handle real-time delay: if this node has a delay, schedule it and break
+        if let Some(delay_secs) = node.delay {
+            // Determine the next node after the delay
+            let next = if !node.choices.is_empty() {
+                // If there are choices AND a delay, the choices were already shown above.
+                // This case shouldn't normally occur — delay is for linear auto-advance nodes.
+                // But handle it: just use the first choice's next_node.
+                node.choices[0].next_node.clone()
+            } else if let Some(ref next) = node.next_node {
+                next.clone()
+            } else {
+                break; // dead end
+            };
+
+            state.current_node = next;
+            time::schedule_wait(state, delay_secs);
+            save_game(state)?;
+
+            // Now handle the wait (show message, let player wait or quit)
+            let should_continue = time::handle_waiting(state)?;
+            if !should_continue {
+                save_game(state)?;
+                break;
+            }
+            save_game(state)?;
+            continue;
+        }
+
         // If there are choices, present them
         if !node.choices.is_empty() {
             let choice_labels: Vec<String> = node
@@ -194,7 +245,6 @@ fn game_loop(state: &mut GameState, story: &HashMap<String, StoryNode>) -> io::R
             save_game(state)?;
         } else {
             // Dead end (no choices and no next_node, and not an ending)
-            // This shouldn't happen in a well-formed story, but handle gracefully
             break;
         }
     }
