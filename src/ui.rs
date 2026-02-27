@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, KeyEvent},
-    style::{self, Attribute, Color, Stylize},
+    event::{self, Event, KeyCode},
+    style::{Attribute, Color, Stylize},
     terminal, ExecutableCommand,
 };
 
@@ -266,56 +266,128 @@ pub fn print_separator(timestamp: Option<&str>) -> io::Result<()> {
     Ok(())
 }
 
-/// Display numbered choices and read the player's selection (1-indexed)
-/// Returns the 0-based index of the chosen option
+/// Display choices as an interactive menu navigated with arrow keys.
+/// Up/Down (or k/j) to move, Enter to confirm.
+/// Returns the 0-based index of the chosen option.
 pub fn prompt_choice(choices: &[String]) -> io::Result<usize> {
     let mut stdout = io::stdout();
+    let count = choices.len();
+    let mut selected: usize = 0;
 
     writeln!(stdout)?;
+
+    // Draw the initial menu
+    draw_choices(&mut stdout, choices, selected)?;
+
+    // Enter raw mode for key-by-key input
+    terminal::enable_raw_mode()?;
+    // Hide cursor for cleaner look
+    stdout.execute(cursor::Hide)?;
+
+    let result = loop {
+        // Poll for events (with a timeout so we can check for Ctrl+C flag)
+        if event::poll(Duration::from_millis(100))? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        selected = if selected == 0 {
+                            count - 1
+                        } else {
+                            selected - 1
+                        };
+                        redraw_choices(&mut stdout, choices, selected)?;
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        selected = (selected + 1) % count;
+                        redraw_choices(&mut stdout, choices, selected)?;
+                    }
+                    KeyCode::Enter => {
+                        break Ok(selected);
+                    }
+                    KeyCode::Esc => {
+                        // Treat Esc like an interrupt
+                        break Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Check for Ctrl+C via the atomic flag
+        if crate::is_interrupted() {
+            break Err(io::Error::new(io::ErrorKind::Interrupted, "interrupted"));
+        }
+    };
+
+    // Restore terminal state
+    stdout.execute(cursor::Show)?;
+    terminal::disable_raw_mode()?;
+
+    result
+}
+
+/// Draw the choice menu (initial render). Each line: `  > choice` or `    choice`.
+fn draw_choices(stdout: &mut io::Stdout, choices: &[String], selected: usize) -> io::Result<()> {
     for (i, choice) in choices.iter().enumerate() {
-        writeln!(
-            stdout,
-            "  {}",
-            format!("{}. {}", i + 1, choice)
-                .with(Color::Yellow)
-                .attribute(Attribute::Dim)
-        )?;
+        if i == selected {
+            writeln!(
+                stdout,
+                "  {} {}",
+                ">".with(Color::Yellow).attribute(Attribute::Bold),
+                choice
+                    .as_str()
+                    .with(Color::Yellow)
+                    .attribute(Attribute::Bold),
+            )?;
+        } else {
+            writeln!(
+                stdout,
+                "    {}",
+                choice
+                    .as_str()
+                    .with(Color::Yellow)
+                    .attribute(Attribute::Dim),
+            )?;
+        }
     }
-    writeln!(stdout)?;
     stdout.flush()?;
+    Ok(())
+}
 
-    loop {
-        write!(stdout, "  {} ", ">".with(Color::Yellow))?;
-        stdout.flush()?;
+/// Redraw the choice menu in-place by moving the cursor up and overwriting.
+fn redraw_choices(stdout: &mut io::Stdout, choices: &[String], selected: usize) -> io::Result<()> {
+    let count = choices.len() as u16;
+    // Move cursor up to the first choice line
+    stdout.execute(cursor::MoveUp(count))?;
 
-        let mut input = String::new();
-        match io::stdin().read_line(&mut input) {
-            Ok(0) => {
-                // EOF or interrupted — return an error to break out of the game loop
-                return Err(io::Error::new(io::ErrorKind::Interrupted, "interrupted"));
-            }
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => {
-                return Err(e);
-            }
-            Err(e) => return Err(e),
-            Ok(_) => {}
+    for (i, choice) in choices.iter().enumerate() {
+        // Clear the line and rewrite
+        write!(stdout, "\r")?;
+        stdout.execute(terminal::Clear(terminal::ClearType::CurrentLine))?;
+
+        if i == selected {
+            writeln!(
+                stdout,
+                "  {} {}",
+                ">".with(Color::Yellow).attribute(Attribute::Bold),
+                choice
+                    .as_str()
+                    .with(Color::Yellow)
+                    .attribute(Attribute::Bold),
+            )?;
+        } else {
+            writeln!(
+                stdout,
+                "    {}",
+                choice
+                    .as_str()
+                    .with(Color::Yellow)
+                    .attribute(Attribute::Dim),
+            )?;
         }
-        let trimmed = input.trim();
-
-        if let Ok(n) = trimmed.parse::<usize>() {
-            if n >= 1 && n <= choices.len() {
-                return Ok(n - 1);
-            }
-        }
-
-        writeln!(
-            stdout,
-            "  {}",
-            "Invalid choice. Please enter a number."
-                .with(Color::Red)
-                .attribute(Attribute::Dim)
-        )?;
     }
+    stdout.flush()?;
+    Ok(())
 }
 
 /// Print a blank line
@@ -390,12 +462,3 @@ pub fn replay_backlog(log: &[crate::game::LogEntry], lang: Language) -> io::Resu
 
     Ok(())
 }
-
-// Silence unused import warnings for items used indirectly
-const _: () = {
-    fn _uses() {
-        let _ = std::mem::size_of::<style::Color>();
-        let _ = std::mem::size_of::<KeyCode>();
-        let _ = std::mem::size_of::<KeyEvent>();
-    }
-};
