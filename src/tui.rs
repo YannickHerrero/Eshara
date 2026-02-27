@@ -108,6 +108,21 @@ impl TypewriterState {
         !self.show_typing_indicator && self.revealed >= self.full_text.len()
     }
 
+    /// Reset timing after a pause so the animation doesn't fast-forward.
+    pub fn resume(&mut self) {
+        let now = Instant::now();
+        self.last_tick = now;
+        if self.show_typing_indicator {
+            // Preserve how much indicator time was left
+            let elapsed = self.indicator_start.elapsed();
+            let indicator_dur = Duration::from_millis(TYPING_INDICATOR_MS);
+            if elapsed < indicator_dur {
+                // Reset indicator_start so the remaining time is preserved
+                self.indicator_start = now - elapsed;
+            }
+        }
+    }
+
     /// Skip to completion: reveal all text immediately.
     pub fn skip(&mut self) {
         self.show_typing_indicator = false;
@@ -457,6 +472,21 @@ impl App {
         // Small pause before next message
         self.post_message_pause = Some(Instant::now());
     }
+
+    /// Close the overlay and reset animation timers so nothing fast-forwards.
+    pub fn resume_from_overlay(&mut self) {
+        self.overlay = Overlay::None;
+        if let Some(ref mut tw) = self.typewriter {
+            tw.resume();
+        }
+        if let Some(ref mut tw) = self.intro_typewriter {
+            tw.resume();
+        }
+        // Reset post-message pause timer so it doesn't expire instantly
+        if self.post_message_pause.is_some() {
+            self.post_message_pause = Some(Instant::now());
+        }
+    }
 }
 
 // ── Event handling ───────────────────────────────────────────
@@ -484,7 +514,7 @@ fn handle_game_key(app: &mut App, code: KeyCode) {
         if !tw.is_done() {
             match code {
                 KeyCode::Esc => {
-                    tw.skip();
+                    // Open pause menu — typewriter pauses (no skip)
                     app.overlay = Overlay::PauseMenu;
                     app.menu_index = 0;
                 }
@@ -543,7 +573,7 @@ fn handle_pause_menu_key(app: &mut App, code: KeyCode) {
             match app.menu_index {
                 0 => {
                     // Resume
-                    app.overlay = Overlay::None;
+                    app.resume_from_overlay();
                 }
                 1 => {
                     // Change language
@@ -556,7 +586,7 @@ fn handle_pause_menu_key(app: &mut App, code: KeyCode) {
                     app.chat.push(ChatEntry::System(
                         sys_msg(Msg::LanguageSwitched, new_lang).to_string(),
                     ));
-                    app.overlay = Overlay::None;
+                    app.resume_from_overlay();
                 }
                 2 => {
                     // Save & Quit
@@ -571,7 +601,7 @@ fn handle_pause_menu_key(app: &mut App, code: KeyCode) {
             }
         }
         KeyCode::Esc => {
-            app.overlay = Overlay::None;
+            app.resume_from_overlay();
         }
         _ => {}
     }
@@ -702,6 +732,11 @@ fn handle_intro_key(app: &mut App, code: KeyCode) {
 
 /// Called on each frame to advance animations.
 pub fn tick(app: &mut App) {
+    // Don't advance anything while an overlay is open
+    if app.overlay != Overlay::None {
+        return;
+    }
+
     // Advance typewriter
     if let Some(ref mut tw) = app.typewriter {
         tw.tick();
