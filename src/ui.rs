@@ -289,7 +289,17 @@ pub fn prompt_choice(choices: &[String]) -> io::Result<usize> {
         stdout.flush()?;
 
         let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
+        match io::stdin().read_line(&mut input) {
+            Ok(0) => {
+                // EOF or interrupted — return an error to break out of the game loop
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "interrupted"));
+            }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {
+                return Err(e);
+            }
+            Err(e) => return Err(e),
+            Ok(_) => {}
+        }
         let trimmed = input.trim();
 
         if let Ok(n) = trimmed.parse::<usize>() {

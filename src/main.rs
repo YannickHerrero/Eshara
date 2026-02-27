@@ -5,7 +5,8 @@ mod time;
 mod ui;
 
 use std::collections::HashMap;
-use std::io;
+use std::io::{self, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use chrono::Utc;
 
@@ -16,11 +17,30 @@ use i18n::{sys_msg, Language, Msg};
 use story::nodes::build_story_tree;
 use story::StoryNode;
 
+/// Global flag set by the Ctrl+C handler
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+/// Check if Ctrl+C was pressed
+fn is_interrupted() -> bool {
+    INTERRUPTED.load(Ordering::Relaxed)
+}
+
 fn main() {
+    // Install Ctrl+C handler
+    let _ = ctrlc::set_handler(move || {
+        INTERRUPTED.store(true, Ordering::Relaxed);
+    });
+
     if let Err(e) = run() {
-        eprintln!("Error: {}", e);
-        std::process::exit(1);
+        // Don't show error for intentional interrupts
+        if e.kind() != io::ErrorKind::Interrupted {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
     }
+
+    // Ensure terminal is restored on exit
+    let _ = crossterm::terminal::disable_raw_mode();
 }
 
 fn run() -> io::Result<()> {
@@ -176,6 +196,12 @@ fn start_new_game(lang: Language) -> io::Result<GameState> {
 /// The core game loop: process nodes, display messages, handle choices
 fn game_loop(state: &mut GameState, story: &HashMap<String, StoryNode>) -> io::Result<()> {
     loop {
+        // Check for Ctrl+C
+        if is_interrupted() {
+            handle_graceful_exit(state)?;
+            break;
+        }
+
         let node = match story.get(&state.current_node) {
             Some(n) => n.clone(),
             None => {
@@ -379,6 +405,28 @@ fn show_ending_screen(state: &GameState) -> io::Result<()> {
     } else {
         delete_save()?;
     }
+
+    Ok(())
+}
+
+/// Handle graceful exit on Ctrl+C: save, show message, restore terminal
+fn handle_graceful_exit(state: &mut GameState) -> io::Result<()> {
+    // Restore terminal state (in case we were in raw mode)
+    let _ = crossterm::terminal::disable_raw_mode();
+
+    let lang = state.language;
+
+    // Auto-save
+    save_game(state)?;
+
+    // Show atmospheric "signal lost" message
+    let mut stdout = io::stdout();
+    writeln!(stdout)?;
+    ui::print_blank()?;
+    ui::print_separator(None)?;
+    ui::print_blank()?;
+    ui::print_system_message(sys_msg(Msg::SignalLost, lang))?;
+    ui::print_blank()?;
 
     Ok(())
 }
