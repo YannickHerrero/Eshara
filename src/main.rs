@@ -2,7 +2,7 @@ use std::io;
 
 use eshara::game::{self, delete_save, load_game, parse_cli_args, save_exists, GameState};
 use eshara::i18n::{sys_msg, Language, Msg};
-use eshara::story::nodes::build_story_tree;
+use eshara::story::load_story;
 use eshara::time;
 use eshara::tui::{self, App, Screen};
 
@@ -31,7 +31,7 @@ fn run() -> io::Result<()> {
         return Ok(());
     }
 
-    let story = build_story_tree();
+    let story_data = load_story();
 
     // Determine starting state and screen
     let (game_state, start_screen, prompt_options) = if save_exists() {
@@ -91,7 +91,7 @@ fn run() -> io::Result<()> {
     };
 
     // Build the App
-    let mut app = App::new(game_state, story);
+    let mut app = App::new(game_state, story_data);
     app.screen = start_screen.clone();
     app.prompt_options = prompt_options;
 

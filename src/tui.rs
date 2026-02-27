@@ -4,7 +4,6 @@
 //! rendering model. The `App` struct holds all UI state; the `run()` function
 //! drives the event loop.
 
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use ratatui::{
@@ -19,7 +18,7 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
 
 use crate::game::{save_game, GameState, LogEntry, Sender};
 use crate::i18n::{sys_msg, Language, Msg};
-use crate::story::{self, EndingType, StoryNode};
+use crate::story::{self, EndingType, StoryData};
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -188,8 +187,8 @@ pub struct App {
     /// The game state (borrowed mutably during run).
     /// We'll hold this directly since we own the game loop.
     pub game_state: GameState,
-    /// The story tree (immutable reference held for the lifetime of the app).
-    pub story: HashMap<String, StoryNode>,
+    /// The full story data (nodes + endings), loaded from JSON.
+    pub story_data: StoryData,
     /// Whether we need to process the next story node.
     pub advance_story: bool,
     /// Intro animation state.
@@ -204,7 +203,7 @@ pub struct App {
 
 impl App {
     /// Create a new App for a fresh or resumed game.
-    pub fn new(game_state: GameState, story: HashMap<String, StoryNode>) -> Self {
+    pub fn new(game_state: GameState, story_data: StoryData) -> Self {
         Self {
             screen: Screen::Game,
             overlay: Overlay::None,
@@ -219,7 +218,7 @@ impl App {
             prompt_options: Vec::new(),
             should_quit: false,
             game_state,
-            story,
+            story_data,
             advance_story: true,
             intro_typewriter: None,
             post_message_pause: None,
@@ -254,7 +253,7 @@ impl App {
     pub fn process_current_node(&mut self) {
         self.advance_story = false;
 
-        let node = match self.story.get(&self.game_state.current_node) {
+        let node = match self.story_data.nodes.get(&self.game_state.current_node) {
             Some(n) => n.clone(),
             None => {
                 self.chat.push(ChatEntry::System(format!(
@@ -292,7 +291,7 @@ impl App {
 
     /// Called when all messages for the current node have been displayed.
     fn handle_node_outcome(&mut self) {
-        let node = match self.story.get(&self.game_state.current_node) {
+        let node = match self.story_data.nodes.get(&self.game_state.current_node) {
             Some(n) => n.clone(),
             None => return,
         };
@@ -439,7 +438,11 @@ impl App {
         });
 
         // Find the original choice by matching the current node's available choices
-        let node = self.story.get(&self.game_state.current_node).cloned();
+        let node = self
+            .story_data
+            .nodes
+            .get(&self.game_state.current_node)
+            .cloned();
         if let Some(node) = node {
             let available: Vec<(usize, &story::Choice)> = node.available_choices(&self.game_state);
             let non_auto: Vec<_> = available
@@ -1212,26 +1215,25 @@ fn draw_ending(frame: &mut Frame, app: &App) {
     lines.push(Line::from(""));
 
     if let Some(ref ending) = app.ending_reached {
-        let title = story::endings::ending_title(ending);
-        let desc = story::endings::ending_description(ending);
-
-        lines.push(
-            Line::from(Span::styled(
-                format!("\"{}\"", title.get(lang)),
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ))
-            .centered(),
-        );
-        lines.push(Line::from(""));
-        lines.push(
-            Line::from(Span::styled(
-                desc.get(lang).to_string(),
-                Style::default().fg(Color::DarkGray),
-            ))
-            .centered(),
-        );
+        if let Some(info) = app.story_data.ending_info(ending) {
+            lines.push(
+                Line::from(Span::styled(
+                    format!("\"{}\"", info.title.get(lang)),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .centered(),
+            );
+            lines.push(Line::from(""));
+            lines.push(
+                Line::from(Span::styled(
+                    info.description.get(lang).to_string(),
+                    Style::default().fg(Color::DarkGray),
+                ))
+                .centered(),
+            );
+        }
     }
 
     lines.push(Line::from(""));
