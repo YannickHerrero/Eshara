@@ -34,6 +34,115 @@ impl StoryData {
         let key = format!("{:?}", ending);
         self.endings.get(&key)
     }
+
+    /// Validate the story graph for structural integrity.
+    /// Returns a list of errors (empty = valid).
+    pub fn validate(&self) -> Vec<String> {
+        use std::collections::{HashSet, VecDeque};
+
+        let mut errors = Vec::new();
+
+        // 1. Must have an "intro" node
+        if !self.nodes.contains_key("intro") {
+            errors.push("Missing required 'intro' node".to_string());
+            return errors; // Can't do further checks without intro
+        }
+
+        // 2. All referenced nodes must exist
+        for (id, node) in &self.nodes {
+            if let Some(ref next) = node.next_node {
+                if !self.nodes.contains_key(next) {
+                    errors.push(format!(
+                        "Node '{}' references next_node '{}' which doesn't exist",
+                        id, next
+                    ));
+                }
+            }
+            for choice in &node.choices {
+                if !self.nodes.contains_key(&choice.next_node) {
+                    errors.push(format!(
+                        "Node '{}' has choice pointing to '{}' which doesn't exist",
+                        id, choice.next_node
+                    ));
+                }
+            }
+            if let Some(ref refusal) = node.trust_refusal {
+                if !self.nodes.contains_key(&refusal.refusal_node) {
+                    errors.push(format!(
+                        "Node '{}' has trust_refusal pointing to '{}' which doesn't exist",
+                        id, refusal.refusal_node
+                    ));
+                }
+            }
+        }
+
+        // 3. No dead ends (nodes with no choices, no next_node, and no ending)
+        for (id, node) in &self.nodes {
+            let has_next = node.next_node.is_some();
+            let has_choices = !node.choices.is_empty();
+            let has_ending = node.ending.is_some();
+
+            if !has_next && !has_choices && !has_ending {
+                errors.push(format!(
+                    "Dead-end node '{}': no choices, no next_node, no ending",
+                    id
+                ));
+            }
+        }
+
+        // 4. All nodes reachable from intro
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+        queue.push_back("intro".to_string());
+
+        while let Some(id) = queue.pop_front() {
+            if visited.contains(&id) {
+                continue;
+            }
+            visited.insert(id.clone());
+
+            if let Some(node) = self.nodes.get(&id) {
+                if let Some(ref next) = node.next_node {
+                    queue.push_back(next.clone());
+                }
+                for choice in &node.choices {
+                    queue.push_back(choice.next_node.clone());
+                }
+                if let Some(ref refusal) = node.trust_refusal {
+                    queue.push_back(refusal.refusal_node.clone());
+                }
+            }
+        }
+
+        let unreachable: Vec<_> = self
+            .nodes
+            .keys()
+            .filter(|k| !visited.contains(*k))
+            .collect();
+        if !unreachable.is_empty() {
+            errors.push(format!("Unreachable nodes: {:?}", unreachable));
+        }
+
+        // 5. At least one ending node exists
+        let ending_count = self.nodes.values().filter(|n| n.ending.is_some()).count();
+        if ending_count == 0 {
+            errors.push("No ending nodes found in the story".to_string());
+        }
+
+        // 6. All messages have non-empty bilingual text
+        for (id, node) in &self.nodes {
+            for (i, msg) in node.messages.iter().enumerate() {
+                if msg.en.is_empty() {
+                    errors.push(format!("Node '{}' message {} has empty EN text", id, i));
+                }
+                if msg.fr.is_empty() {
+                    errors.push(format!("Node '{}' message {} has empty FR text", id, i));
+                }
+            }
+        }
+
+        errors
+    }
 }
 
 /// Load the story data.
@@ -41,15 +150,31 @@ impl StoryData {
 /// 1. If `data/story.json` exists on disk (next to the working directory), load it.
 /// 2. Otherwise, fall back to the compile-time embedded copy.
 ///
-/// Panics if the JSON is malformed (this is a fatal configuration error).
+/// Panics if the JSON is malformed or the story graph is invalid.
 pub fn load_story() -> StoryData {
-    let external = Path::new("data/story.json");
-    if external.exists() {
-        let json = std::fs::read_to_string(external).expect("Failed to read data/story.json");
-        serde_json::from_str(&json).expect("Failed to parse data/story.json")
-    } else {
-        serde_json::from_str(EMBEDDED_STORY).expect("Failed to parse embedded story data")
+    let story_data: StoryData = {
+        let external = Path::new("data/story.json");
+        if external.exists() {
+            let json = std::fs::read_to_string(external).expect("Failed to read data/story.json");
+            serde_json::from_str(&json).expect("Failed to parse data/story.json")
+        } else {
+            serde_json::from_str(EMBEDDED_STORY).expect("Failed to parse embedded story data")
+        }
+    };
+
+    let errors = story_data.validate();
+    if !errors.is_empty() {
+        eprintln!("Story validation errors:");
+        for e in &errors {
+            eprintln!("  - {}", e);
+        }
+        panic!(
+            "Story data has {} validation error(s). Fix data/story.json and try again.",
+            errors.len()
+        );
     }
+
+    story_data
 }
 
 /// A condition that must be met for a choice to be available
