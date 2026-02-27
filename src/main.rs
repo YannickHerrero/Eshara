@@ -201,25 +201,57 @@ fn game_loop(state: &mut GameState, story: &HashMap<String, StoryNode>) -> io::R
             continue;
         }
 
-        // If there are choices, present them
+        // If there are choices, present them (with condition filtering)
         if !node.choices.is_empty() {
-            let choice_labels: Vec<String> = node
-                .choices
+            // Check trust-based refusal first
+            if node.should_refuse(state) {
+                let refusal = node.trust_refusal.as_ref().unwrap();
+                let refusal_text = refusal.refusal_message.get(lang);
+
+                // Show Elara's refusal
+                ui::elara_says(refusal_text, lang)?;
+                state.message_log.push(LogEntry {
+                    sender: Sender::Elara,
+                    text: refusal_text.to_string(),
+                    timestamp: Utc::now(),
+                });
+
+                // Go to the refusal node instead
+                state.current_node = refusal.refusal_node.clone();
+                save_game(state)?;
+                continue;
+            }
+
+            // Filter choices by conditions
+            let available: Vec<(usize, &story::Choice)> = node.available_choices(state);
+
+            if available.is_empty() {
+                // All choices are gated — fall through to next_node if available
+                if let Some(ref next) = node.next_node {
+                    state.current_node = next.clone();
+                    save_game(state)?;
+                    continue;
+                } else {
+                    break; // dead end
+                }
+            }
+
+            let choice_labels: Vec<String> = available
                 .iter()
-                .map(|c| c.label.get(lang).to_string())
+                .map(|(_, c)| c.label.get(lang).to_string())
                 .collect();
 
-            let chosen_idx = ui::prompt_choice(&choice_labels)?;
-            let chosen = &node.choices[chosen_idx];
+            let chosen_display_idx = ui::prompt_choice(&choice_labels)?;
+            let (_, chosen) = available[chosen_display_idx];
 
             // Show the player's choice in the chat
-            ui::print_player_choice(&choice_labels[chosen_idx])?;
+            ui::print_player_choice(&choice_labels[chosen_display_idx])?;
             ui::print_blank()?;
 
             // Log the player's choice
             state.message_log.push(LogEntry {
                 sender: Sender::Player,
-                text: choice_labels[chosen_idx].clone(),
+                text: choice_labels[chosen_display_idx].clone(),
                 timestamp: Utc::now(),
             });
 

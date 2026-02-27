@@ -80,6 +80,53 @@ pub enum EndingType {
     TheEsharaWins,
 }
 
+// ── Condition evaluation ─────────────────────────────────────
+
+use crate::game::GameState;
+
+impl Condition {
+    /// Evaluate whether this condition is met given the current game state
+    pub fn evaluate(&self, state: &GameState) -> bool {
+        match self {
+            Condition::FlagSet(flag) => state.has_flag(flag),
+            Condition::FlagUnset(flag) => !state.has_flag(flag),
+            Condition::StatAtLeast(stat, threshold) => {
+                state.stats.get(stat).unwrap_or(0) >= *threshold
+            }
+            Condition::StatBelow(stat, threshold) => {
+                state.stats.get(stat).unwrap_or(0) < *threshold
+            }
+        }
+    }
+}
+
+impl Choice {
+    /// Check if all conditions for this choice are met
+    pub fn is_available(&self, state: &GameState) -> bool {
+        self.conditions.iter().all(|c| c.evaluate(state))
+    }
+}
+
+impl StoryNode {
+    /// Get only the choices that are available given the current game state
+    pub fn available_choices(&self, state: &GameState) -> Vec<(usize, &Choice)> {
+        self.choices
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.is_available(state))
+            .collect()
+    }
+
+    /// Check if this node has a trust refusal that should trigger
+    pub fn should_refuse(&self, state: &GameState) -> bool {
+        if let Some(ref refusal) = self.trust_refusal {
+            state.stats.trust_level < refusal.min_trust
+        } else {
+            false
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,5 +168,122 @@ mod tests {
         let json = serde_json::to_string(&ending).unwrap();
         let deserialized: EndingType = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, EndingType::NewDawn);
+    }
+
+    #[test]
+    fn test_condition_flag_set() {
+        use crate::i18n::Language;
+        let mut state = GameState::new(Language::En);
+        let cond = Condition::FlagSet("test_flag".to_string());
+        assert!(!cond.evaluate(&state));
+        state.set_flag("test_flag");
+        assert!(cond.evaluate(&state));
+    }
+
+    #[test]
+    fn test_condition_flag_unset() {
+        use crate::i18n::Language;
+        let mut state = GameState::new(Language::En);
+        let cond = Condition::FlagUnset("test_flag".to_string());
+        assert!(cond.evaluate(&state));
+        state.set_flag("test_flag");
+        assert!(!cond.evaluate(&state));
+    }
+
+    #[test]
+    fn test_condition_stat_at_least() {
+        use crate::i18n::Language;
+        let state = GameState::new(Language::En);
+        // Default trust_level is 3
+        let cond = Condition::StatAtLeast("trust_level".to_string(), 3);
+        assert!(cond.evaluate(&state));
+        let cond_high = Condition::StatAtLeast("trust_level".to_string(), 5);
+        assert!(!cond_high.evaluate(&state));
+    }
+
+    #[test]
+    fn test_choice_availability() {
+        use crate::i18n::Language;
+        let state = GameState::new(Language::En);
+        let choice = Choice {
+            label: LocalizedString::new("Gated option", "Option conditionn\u{00e9}e"),
+            next_node: "next".to_string(),
+            flags_set: vec![],
+            flags_remove: vec![],
+            stat_changes: vec![],
+            conditions: vec![Condition::FlagSet("required_flag".to_string())],
+        };
+        assert!(!choice.is_available(&state));
+
+        let mut state2 = state.clone();
+        state2.set_flag("required_flag");
+        assert!(choice.is_available(&state2));
+    }
+
+    #[test]
+    fn test_trust_refusal() {
+        use crate::i18n::Language;
+        let state = GameState::new(Language::En); // trust_level = 3
+        let node = StoryNode {
+            id: "test".to_string(),
+            messages: vec![],
+            choices: vec![],
+            next_node: None,
+            delay: None,
+            ending: None,
+            trust_refusal: Some(TrustRefusal {
+                min_trust: 5,
+                refusal_node: "refusal".to_string(),
+                refusal_message: LocalizedString::new(
+                    "Sorry, I can't do that.",
+                    "D\u{00e9}sol\u{00e9}e, je peux pas faire \u{00e7}a.",
+                ),
+            }),
+        };
+        assert!(node.should_refuse(&state)); // trust is 3, min is 5
+
+        let mut state2 = state.clone();
+        state2.stats.trust_level = 6;
+        assert!(!node.should_refuse(&state2)); // trust is 6, min is 5
+    }
+
+    #[test]
+    fn test_available_choices_filters_correctly() {
+        use crate::i18n::Language;
+        let mut state = GameState::new(Language::En);
+        let node = StoryNode {
+            id: "test".to_string(),
+            messages: vec![],
+            choices: vec![
+                Choice {
+                    label: LocalizedString::new("Always visible", "Toujours visible"),
+                    next_node: "a".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![],
+                },
+                Choice {
+                    label: LocalizedString::new("Needs flag", "Besoin du flag"),
+                    next_node: "b".to_string(),
+                    flags_set: vec![],
+                    flags_remove: vec![],
+                    stat_changes: vec![],
+                    conditions: vec![Condition::FlagSet("special".to_string())],
+                },
+            ],
+            next_node: None,
+            delay: None,
+            ending: None,
+            trust_refusal: None,
+        };
+
+        let available = node.available_choices(&state);
+        assert_eq!(available.len(), 1);
+        assert_eq!(available[0].0, 0);
+
+        state.set_flag("special");
+        let available = node.available_choices(&state);
+        assert_eq!(available.len(), 2);
     }
 }
