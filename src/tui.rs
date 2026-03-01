@@ -14,7 +14,7 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseEvent, MouseEventKind};
 
 use crate::game::{save_game, GameState, LogEntry, Sender};
 use crate::i18n::{sys_msg, Language, Msg};
@@ -165,8 +165,7 @@ pub struct App {
     pub overlay: Overlay,
     /// Visible chat entries.
     pub chat: Vec<ChatEntry>,
-    /// Scroll offset for chat (0 = bottom). Reserved for manual scroll support.
-    #[allow(dead_code)]
+    /// Scroll offset for chat (0 = bottom).
     pub chat_scroll: u16,
     /// Current typewriter animation (if any).
     pub typewriter: Option<TypewriterState>,
@@ -358,18 +357,19 @@ impl App {
             crate::time::schedule_wait(&mut self.game_state, delay_info.seconds);
             let _ = save_game(&self.game_state);
 
-            // Show wait screen with the delay's localized message
-            self.screen = Screen::Waiting;
-            self.prompt_options = vec![
-                sys_msg(Msg::WaitOption, lang).to_string(),
-                sys_msg(Msg::QuitOption, lang).to_string(),
-            ];
-            self.prompt_index = 0;
-
-            let remaining =
-                crate::time::remaining_time_str(self.game_state.waiting_until.unwrap(), lang);
+            let until = self.game_state.waiting_until.unwrap();
+            let remaining = crate::time::remaining_time_str(until, lang);
             let delay_msg = delay_info.message.get(lang);
-            self.wait_message = Some(format!("{}\n\n(~{})", delay_msg, remaining));
+            self.wait_message = Some(delay_msg.to_string());
+            self.chat
+                .push(ChatEntry::System(format!("{} (~{})", delay_msg, remaining)));
+            self.game_state.message_log.push(LogEntry {
+                sender: Sender::System,
+                text: format!("{} (~{})", delay_msg, remaining),
+                timestamp: chrono::Utc::now(),
+            });
+            self.chat_scroll = 0;
+            self.advance_story = false;
             return;
         }
 
@@ -506,7 +506,27 @@ pub fn handle_key(app: &mut App, code: KeyCode) {
         Screen::LanguageSelect | Screen::ContinueOrNew => handle_prompt_key(app, code),
         Screen::Intro => handle_intro_key(app, code),
         Screen::Ending => handle_prompt_key(app, code),
-        Screen::Waiting => handle_prompt_key(app, code),
+        Screen::Waiting => handle_game_key(app, code),
+    }
+}
+
+fn scroll_chat_up(app: &mut App, lines: u16) {
+    app.chat_scroll = app.chat_scroll.saturating_add(lines);
+}
+
+fn scroll_chat_down(app: &mut App, lines: u16) {
+    app.chat_scroll = app.chat_scroll.saturating_sub(lines);
+}
+
+fn handle_mouse(app: &mut App, mouse: MouseEvent) {
+    if app.overlay == Overlay::PauseMenu {
+        return;
+    }
+
+    match mouse.kind {
+        MouseEventKind::ScrollUp => scroll_chat_up(app, 3),
+        MouseEventKind::ScrollDown => scroll_chat_down(app, 3),
+        _ => {}
     }
 }
 
@@ -515,6 +535,18 @@ fn handle_game_key(app: &mut App, code: KeyCode) {
     if let Some(ref mut tw) = app.typewriter {
         if !tw.is_done() {
             match code {
+                KeyCode::Up | KeyCode::Char('k') | KeyCode::PageUp => {
+                    scroll_chat_up(app, 3);
+                }
+                KeyCode::Down | KeyCode::Char('j') | KeyCode::PageDown => {
+                    scroll_chat_down(app, 3);
+                }
+                KeyCode::Home => {
+                    scroll_chat_up(app, u16::MAX);
+                }
+                KeyCode::End => {
+                    app.chat_scroll = 0;
+                }
                 KeyCode::Esc => {
                     // Open pause menu — typewriter pauses (no skip)
                     app.overlay = Overlay::PauseMenu;
@@ -539,6 +571,18 @@ fn handle_game_key(app: &mut App, code: KeyCode) {
             KeyCode::Down | KeyCode::Char('j') => {
                 app.choice_index = (app.choice_index + 1) % app.choices.len();
             }
+            KeyCode::PageUp => {
+                scroll_chat_up(app, 3);
+            }
+            KeyCode::PageDown => {
+                scroll_chat_down(app, 3);
+            }
+            KeyCode::Home => {
+                scroll_chat_up(app, u16::MAX);
+            }
+            KeyCode::End => {
+                app.chat_scroll = 0;
+            }
             KeyCode::Enter => {
                 app.select_choice();
             }
@@ -552,9 +596,24 @@ fn handle_game_key(app: &mut App, code: KeyCode) {
     }
 
     // Esc always opens menu
-    if code == KeyCode::Esc {
-        app.overlay = Overlay::PauseMenu;
-        app.menu_index = 0;
+    match code {
+        KeyCode::Up | KeyCode::Char('k') | KeyCode::PageUp => {
+            scroll_chat_up(app, 3);
+        }
+        KeyCode::Down | KeyCode::Char('j') | KeyCode::PageDown => {
+            scroll_chat_down(app, 3);
+        }
+        KeyCode::Home => {
+            scroll_chat_up(app, u16::MAX);
+        }
+        KeyCode::End => {
+            app.chat_scroll = 0;
+        }
+        KeyCode::Esc => {
+            app.overlay = Overlay::PauseMenu;
+            app.menu_index = 0;
+        }
+        _ => {}
     }
 }
 
@@ -680,14 +739,7 @@ fn handle_prompt_key(app: &mut App, code: KeyCode) {
                     }
                 }
                 Screen::Waiting => {
-                    if app.prompt_index == 0 {
-                        // Wait — we can't really block, so just quit and come back
-                        app.should_quit = true;
-                    } else {
-                        // Quit
-                        let _ = save_game(&app.game_state);
-                        app.should_quit = true;
-                    }
+                    // Keep the player in-game while waiting.
                 }
                 _ => {}
             }
@@ -734,6 +786,18 @@ fn handle_intro_key(app: &mut App, code: KeyCode) {
 
 /// Called on each frame to advance animations.
 pub fn tick(app: &mut App) {
+    if let Some(_until) = app.game_state.waiting_until {
+        if !crate::time::is_waiting(&app.game_state) {
+            app.game_state.waiting_until = None;
+            app.wait_message = None;
+            let _ = save_game(&app.game_state);
+            if app.screen == Screen::Waiting {
+                app.screen = Screen::Game;
+            }
+            app.advance_story = true;
+        }
+    }
+
     // Don't advance anything while an overlay is open
     if app.overlay != Overlay::None {
         return;
@@ -765,6 +829,7 @@ pub fn tick(app: &mut App) {
         && app.typewriter.is_none()
         && app.post_message_pause.is_none()
         && app.screen == Screen::Game
+        && !crate::time::is_waiting(&app.game_state)
     {
         app.process_current_node();
     }
@@ -805,6 +870,24 @@ fn draw_game(frame: &mut Frame, app: &App) {
 
     // Banner
     lines.push(Line::from("").centered());
+
+    if crate::time::is_waiting(&app.game_state) {
+        let base_msg = app
+            .wait_message
+            .clone()
+            .unwrap_or_else(|| sys_msg(Msg::ElaraUnavailable, app.lang()).to_string());
+        if let Some(until) = app.game_state.waiting_until {
+            let remaining = crate::time::remaining_time_str(until, app.lang());
+            lines.push(
+                Line::from(Span::styled(
+                    format!("{} (~{})", base_msg, remaining),
+                    Style::default().fg(Color::DarkGray),
+                ))
+                .centered(),
+            );
+            lines.push(Line::from("").centered());
+        }
+    }
     lines.push(
         Line::from(Span::styled(
             "E S H A R A",
@@ -931,11 +1014,9 @@ fn draw_game(frame: &mut Frame, app: &App) {
     let text = Text::from(lines);
     let chat_height = chat_area.height as usize;
     let total_lines = wrapped_line_count(&text, chat_area.width);
-    let scroll = if total_lines > chat_height {
-        (total_lines - chat_height) as u16
-    } else {
-        0
-    };
+    let max_scroll = total_lines.saturating_sub(chat_height) as u16;
+    let effective_scroll = app.chat_scroll.min(max_scroll);
+    let scroll = max_scroll.saturating_sub(effective_scroll);
 
     let paragraph = Paragraph::new(text)
         .wrap(Wrap { trim: false })
@@ -943,9 +1024,15 @@ fn draw_game(frame: &mut Frame, app: &App) {
     frame.render_widget(paragraph, chat_area);
 
     // Status bar
+    let scroll_hint = if app.chat_scroll > 0 {
+        "[Mouse wheel] Scroll [End] Jump latest"
+    } else {
+        "[Mouse wheel] Scroll"
+    };
     let hint = format!(
-        "[Esc] {}",
-        sys_msg(Msg::PauseMenuHint, app.lang()).trim_start_matches("[Esc] ")
+        "[Esc] {}  {}",
+        sys_msg(Msg::PauseMenuHint, app.lang()).trim_start_matches("[Esc] "),
+        scroll_hint
     );
     let status = Line::from(Span::styled(
         format!(" {}", hint),
@@ -1338,11 +1425,15 @@ pub fn run(mut app: App, terminal: &mut DefaultTerminal) -> std::io::Result<()> 
 
         // Poll events
         if event::poll(tick_rate)? {
-            if let Event::Key(key) = event::read()? {
-                // Only handle key press events (not release/repeat)
-                if key.kind == KeyEventKind::Press {
-                    handle_key(&mut app, key.code);
+            match event::read()? {
+                Event::Key(key) => {
+                    // Only handle key press events (not release/repeat)
+                    if key.kind == KeyEventKind::Press {
+                        handle_key(&mut app, key.code);
+                    }
                 }
+                Event::Mouse(mouse) => handle_mouse(&mut app, mouse),
+                _ => {}
             }
         }
 

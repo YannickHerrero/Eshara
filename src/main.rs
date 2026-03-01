@@ -45,20 +45,8 @@ fn run() -> io::Result<()> {
             state.language = lang;
 
             if time::is_waiting(&state) {
-                // Elara is still busy — show wait screen
-                let until = state.waiting_until.unwrap();
-                let remaining = time::remaining_time_str(until, lang);
-                let _wait_msg = format!(
-                    "{}\n\n{} (~{})",
-                    sys_msg(Msg::ElaraUnavailable, lang),
-                    sys_msg(Msg::ElaraBackAround, lang),
-                    remaining,
-                );
-                let opts = vec![
-                    sys_msg(Msg::WaitOption, lang).to_string(),
-                    sys_msg(Msg::QuitOption, lang).to_string(),
-                ];
-                (state, Screen::Waiting, opts)
+                // Elara is still busy — keep the user in chat view.
+                (state, Screen::Game, Vec::new())
             } else {
                 // Clear completed wait if any
                 if state.waiting_until.is_some() {
@@ -100,20 +88,18 @@ fn run() -> io::Result<()> {
     app.prompt_options = prompt_options;
 
     // If resuming, load backlog into chat
-    if start_screen == Screen::ContinueOrNew || start_screen == Screen::Waiting {
+    if start_screen == Screen::ContinueOrNew || start_screen == Screen::Game {
         app.load_backlog();
     }
 
-    // Set up wait message if on the waiting screen
-    if start_screen == Screen::Waiting {
-        if let Some(until) = app.game_state.waiting_until {
+    // Set up wait message if currently waiting
+    if time::is_waiting(&app.game_state) {
+        if app.game_state.waiting_until.is_some() {
             let lang = app.lang();
-            let remaining = time::remaining_time_str(until, lang);
             app.wait_message = Some(format!(
-                "{}\n\n{} (~{})",
+                "{} {}",
                 sys_msg(Msg::ElaraUnavailable, lang),
                 sys_msg(Msg::ElaraBackAround, lang),
-                remaining,
             ));
         }
     }
