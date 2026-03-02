@@ -1029,10 +1029,24 @@ fn draw_game(frame: &mut Frame, app: &App) {
     } else {
         "[Mouse wheel] Scroll"
     };
+    let wait_hint = if crate::time::is_waiting(&app.game_state) {
+        if let Some(until) = app.game_state.waiting_until {
+            format!(
+                "  {} (~{})",
+                sys_msg(Msg::ElaraUnavailable, app.lang()),
+                crate::time::remaining_time_str(until, app.lang())
+            )
+        } else {
+            format!("  {}", sys_msg(Msg::ElaraUnavailable, app.lang()))
+        }
+    } else {
+        String::new()
+    };
     let hint = format!(
-        "[Esc] {}  {}",
+        "[Esc] {}  {}{}",
         sys_msg(Msg::PauseMenuHint, app.lang()).trim_start_matches("[Esc] "),
-        scroll_hint
+        scroll_hint,
+        wait_hint
     );
     let status = Line::from(Span::styled(
         format!(" {}", hint),
