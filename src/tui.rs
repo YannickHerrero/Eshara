@@ -213,11 +213,24 @@ pub struct App {
     pub ending_reached: Option<String>,
     /// Wait screen info.
     pub wait_message: Option<String>,
+    /// Draft language value shown in pause menu before validation.
+    pub menu_language_draft: Language,
+    /// Draft text speed shown in pause menu before validation.
+    pub menu_text_speed_draft: TextSpeed,
+    /// Draft waiting-times value shown in pause menu before validation.
+    pub menu_waiting_times_enabled_draft: bool,
+    /// Draft auto-dialog value shown in pause menu before validation.
+    pub menu_automatic_dialogs_enabled_draft: bool,
 }
 
 impl App {
     /// Create a new App for a fresh or resumed game.
     pub fn new(game_state: GameState, story_data: StoryData) -> Self {
+        let menu_language_draft = game_state.language;
+        let menu_text_speed_draft = game_state.settings.text_speed;
+        let menu_waiting_times_enabled_draft = game_state.settings.waiting_times_enabled;
+        let menu_automatic_dialogs_enabled_draft = game_state.settings.automatic_dialogs_enabled;
+
         Self {
             screen: Screen::Game,
             overlay: Overlay::None,
@@ -239,6 +252,10 @@ impl App {
             wait_for_space: false,
             ending_reached: None,
             wait_message: None,
+            menu_language_draft,
+            menu_text_speed_draft,
+            menu_waiting_times_enabled_draft,
+            menu_automatic_dialogs_enabled_draft,
         }
     }
 
@@ -544,6 +561,47 @@ impl App {
             self.post_message_pause = Some(Instant::now());
         }
     }
+
+    pub fn open_pause_menu(&mut self) {
+        self.menu_index = 0;
+        self.menu_language_draft = self.game_state.language;
+        self.menu_text_speed_draft = self.game_state.settings.text_speed;
+        self.menu_waiting_times_enabled_draft = self.game_state.settings.waiting_times_enabled;
+        self.menu_automatic_dialogs_enabled_draft =
+            self.game_state.settings.automatic_dialogs_enabled;
+        self.overlay = Overlay::PauseMenu;
+    }
+
+    fn validate_pause_menu_settings(&mut self) {
+        let previous_lang = self.game_state.language;
+
+        self.game_state.language = self.menu_language_draft;
+        self.game_state.settings.text_speed = self.menu_text_speed_draft;
+        self.game_state.settings.waiting_times_enabled = self.menu_waiting_times_enabled_draft;
+        self.game_state.settings.automatic_dialogs_enabled =
+            self.menu_automatic_dialogs_enabled_draft;
+
+        crate::time::set_waiting_times_enabled(self.game_state.settings.waiting_times_enabled);
+
+        if self.game_state.settings.text_speed == TextSpeed::Instant {
+            if let Some(ref mut tw) = self.typewriter {
+                tw.skip();
+            }
+        }
+
+        if self.game_state.settings.automatic_dialogs_enabled && self.wait_for_space {
+            self.wait_for_space = false;
+            self.post_message_pause = Some(Instant::now());
+        }
+
+        if previous_lang != self.game_state.language {
+            self.chat.push(ChatEntry::System(
+                sys_msg(Msg::LanguageSwitched, self.game_state.language).to_string(),
+            ));
+        }
+
+        let _ = save_game(&self.game_state);
+    }
 }
 
 // ── Event handling ───────────────────────────────────────────
@@ -604,8 +662,7 @@ fn handle_game_key(app: &mut App, code: KeyCode) {
                 }
                 KeyCode::Esc => {
                     // Open pause menu — typewriter pauses (no skip)
-                    app.overlay = Overlay::PauseMenu;
-                    app.menu_index = 0;
+                    app.open_pause_menu();
                 }
                 _ => tw.skip(),
             }
@@ -629,8 +686,7 @@ fn handle_game_key(app: &mut App, code: KeyCode) {
                 app.chat_scroll = 0;
             }
             KeyCode::Esc => {
-                app.overlay = Overlay::PauseMenu;
-                app.menu_index = 0;
+                app.open_pause_menu();
             }
             _ => {}
         }
@@ -666,8 +722,7 @@ fn handle_game_key(app: &mut App, code: KeyCode) {
                 app.select_choice();
             }
             KeyCode::Esc => {
-                app.overlay = Overlay::PauseMenu;
-                app.menu_index = 0;
+                app.open_pause_menu();
             }
             _ => {}
         }
@@ -689,31 +744,25 @@ fn handle_game_key(app: &mut App, code: KeyCode) {
             app.chat_scroll = 0;
         }
         KeyCode::Esc => {
-            app.overlay = Overlay::PauseMenu;
-            app.menu_index = 0;
+            app.open_pause_menu();
         }
         _ => {}
     }
 }
 
 fn handle_pause_menu_key(app: &mut App, code: KeyCode) {
-    let items = 6; // Resume, Language, Text speed, Waiting times, Automatic dialogs, Save & Quit
+    let items = 7; // Resume, Language, Text speed, Waiting times, Automatic dialogs, Validate, Save & Quit
 
     let mut apply_setting = |forward: bool| match app.menu_index {
         1 => {
-            let new_lang = match app.game_state.language {
+            let new_lang = match app.menu_language_draft {
                 Language::En => Language::Fr,
                 Language::Fr => Language::En,
             };
-            app.game_state.language = new_lang;
-            let _ = save_game(&app.game_state);
-            app.chat.push(ChatEntry::System(
-                sys_msg(Msg::LanguageSwitched, new_lang).to_string(),
-            ));
+            app.menu_language_draft = new_lang;
         }
         2 => {
-            app.game_state.settings.text_speed = match (app.game_state.settings.text_speed, forward)
-            {
+            app.menu_text_speed_draft = match (app.menu_text_speed_draft, forward) {
                 (TextSpeed::Normal, true) => TextSpeed::Fast,
                 (TextSpeed::Fast, true) => TextSpeed::Instant,
                 (TextSpeed::Instant, true) => TextSpeed::Normal,
@@ -721,27 +770,12 @@ fn handle_pause_menu_key(app: &mut App, code: KeyCode) {
                 (TextSpeed::Fast, false) => TextSpeed::Normal,
                 (TextSpeed::Instant, false) => TextSpeed::Fast,
             };
-            if app.game_state.settings.text_speed == TextSpeed::Instant {
-                if let Some(ref mut tw) = app.typewriter {
-                    tw.skip();
-                }
-            }
-            let _ = save_game(&app.game_state);
         }
         3 => {
-            app.game_state.settings.waiting_times_enabled =
-                !app.game_state.settings.waiting_times_enabled;
-            crate::time::set_waiting_times_enabled(app.game_state.settings.waiting_times_enabled);
-            let _ = save_game(&app.game_state);
+            app.menu_waiting_times_enabled_draft = !app.menu_waiting_times_enabled_draft;
         }
         4 => {
-            app.game_state.settings.automatic_dialogs_enabled =
-                !app.game_state.settings.automatic_dialogs_enabled;
-            if app.game_state.settings.automatic_dialogs_enabled && app.wait_for_space {
-                app.wait_for_space = false;
-                app.post_message_pause = Some(Instant::now());
-            }
-            let _ = save_game(&app.game_state);
+            app.menu_automatic_dialogs_enabled_draft = !app.menu_automatic_dialogs_enabled_draft;
         }
         _ => {}
     };
@@ -766,6 +800,10 @@ fn handle_pause_menu_key(app: &mut App, code: KeyCode) {
         KeyCode::Enter => match app.menu_index {
             0 => app.resume_from_overlay(),
             5 => {
+                app.validate_pause_menu_settings();
+                app.resume_from_overlay();
+            }
+            6 => {
                 let _ = save_game(&app.game_state);
                 app.chat.push(ChatEntry::System(
                     sys_msg(Msg::SavedAndQuit, app.lang()).to_string(),
@@ -880,8 +918,7 @@ fn handle_prompt_key(app: &mut App, code: KeyCode) {
         KeyCode::Esc => {
             // Esc opens pause menu on game-like screens
             if app.screen == Screen::Waiting {
-                app.overlay = Overlay::PauseMenu;
-                app.menu_index = 0;
+                app.open_pause_menu();
             }
         }
         _ => {}
@@ -1204,7 +1241,7 @@ fn draw_pause_menu(frame: &mut Frame, app: &App) {
 
     // Centered popup
     let popup_width = 58u16.min(area.width.saturating_sub(4));
-    let popup_height = 12u16.min(area.height.saturating_sub(4));
+    let popup_height = 13u16.min(area.height.saturating_sub(4));
     let popup_area = centered_rect(popup_width, popup_height, area);
 
     // Clear the area behind the popup
@@ -1223,7 +1260,7 @@ fn draw_pause_menu(frame: &mut Frame, app: &App) {
     let inner = block.inner(popup_area);
     frame.render_widget(block, popup_area);
 
-    let language_value = match app.game_state.language {
+    let language_value = match app.menu_language_draft {
         Language::Fr => format!(
             "[{}] | {}",
             sys_msg(Msg::SettingLangFr, lang),
@@ -1235,7 +1272,7 @@ fn draw_pause_menu(frame: &mut Frame, app: &App) {
             sys_msg(Msg::SettingLangEn, lang)
         ),
     };
-    let text_speed_value = match app.game_state.settings.text_speed {
+    let text_speed_value = match app.menu_text_speed_draft {
         TextSpeed::Normal => format!(
             "[{}] | {} | {}",
             sys_msg(Msg::SettingSpeedNormal, lang),
@@ -1255,7 +1292,7 @@ fn draw_pause_menu(frame: &mut Frame, app: &App) {
             sys_msg(Msg::SettingSpeedInstant, lang)
         ),
     };
-    let waiting_value = if app.game_state.settings.waiting_times_enabled {
+    let waiting_value = if app.menu_waiting_times_enabled_draft {
         format!(
             "[{}] | {}",
             sys_msg(Msg::SettingEnabled, lang),
@@ -1268,7 +1305,7 @@ fn draw_pause_menu(frame: &mut Frame, app: &App) {
             sys_msg(Msg::SettingDisabled, lang)
         )
     };
-    let automatic_dialogs_value = if app.game_state.settings.automatic_dialogs_enabled {
+    let automatic_dialogs_value = if app.menu_automatic_dialogs_enabled_draft {
         format!(
             "[{}] | {}",
             sys_msg(Msg::SettingEnabled, lang),
@@ -1291,6 +1328,7 @@ fn draw_pause_menu(frame: &mut Frame, app: &App) {
             sys_msg(Msg::MenuAutomaticDialogs, lang),
             automatic_dialogs_value,
         ),
+        (sys_msg(Msg::MenuValidate, lang), String::new()),
         (sys_msg(Msg::MenuSaveQuit, lang), String::new()),
     ];
 
