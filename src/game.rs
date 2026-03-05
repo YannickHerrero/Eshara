@@ -91,6 +91,9 @@ pub struct GameState {
     pub message_log: Vec<LogEntry>,
     /// Tracked gameplay stats
     pub stats: Stats,
+    /// How many messages of the current node were already displayed
+    #[serde(default)]
+    pub node_message_index: usize,
     /// Which ending was reached, if any (string key e.g. "still_here", "gone_dark")
     pub ending: Option<String>,
     /// The game day (narrative day tracker)
@@ -113,6 +116,7 @@ impl GameState {
             waiting_until: None,
             message_log: Vec::new(),
             stats: Stats::new(trust, health, supplies),
+            node_message_index: 0,
             ending: None,
             day: 1,
         }
@@ -286,6 +290,23 @@ mod tests {
         let deserialized: GameState = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.current_node, "a1_first_contact");
         assert_eq!(deserialized.language, Language::En);
+        assert_eq!(deserialized.node_message_index, 0);
+    }
+
+    #[test]
+    fn test_deserialize_old_save_defaults_node_message_index() {
+        let json = r#"{
+            "current_node": "a1_first_contact",
+            "flags": {},
+            "language": "En",
+            "waiting_until": null,
+            "message_log": [],
+            "stats": { "trust": 3, "health": 10, "supplies": 3 },
+            "ending": null,
+            "day": 1
+        }"#;
+        let deserialized: GameState = serde_json::from_str(json).unwrap();
+        assert_eq!(deserialized.node_message_index, 0);
     }
 
     #[test]

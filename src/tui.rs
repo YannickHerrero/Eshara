@@ -251,6 +251,11 @@ impl App {
         }
     }
 
+    fn move_to_node(&mut self, next_node: String) {
+        self.game_state.current_node = next_node;
+        self.game_state.node_message_index = 0;
+    }
+
     /// Process the current story node: apply on_enter effects, queue messages, prepare choices.
     pub fn process_current_node(&mut self) {
         self.advance_story = false;
@@ -267,12 +272,14 @@ impl App {
             }
         };
 
-        // Apply on_enter effects (stat changes, flags)
-        if let Some(ref effects) = node.on_enter {
-            let health_changed = effects.apply(&mut self.game_state);
-            // Death check: if health dropped to 0, redirect to death node
-            if health_changed && self.check_death() {
-                return;
+        // Apply on_enter effects only the first time we enter a node.
+        if self.game_state.node_message_index == 0 {
+            if let Some(ref effects) = node.on_enter {
+                let health_changed = effects.apply(&mut self.game_state);
+                // Death check: if health dropped to 0, redirect to death node
+                if health_changed && self.check_death() {
+                    return;
+                }
             }
         }
 
@@ -280,7 +287,14 @@ impl App {
 
         // Queue all messages for typewriter display
         self.message_queue.clear();
-        for msg in &node.messages {
+        if self.game_state.node_message_index > node.messages.len() {
+            self.game_state.node_message_index = node.messages.len();
+        }
+        for msg in node
+            .messages
+            .iter()
+            .skip(self.game_state.node_message_index)
+        {
             self.message_queue.push(msg.get(lang).to_string());
         }
 
@@ -293,7 +307,7 @@ impl App {
     fn check_death(&mut self) -> bool {
         if self.game_state.stats.health <= 0 {
             if let Some(ref dc) = self.story_data.death_check {
-                self.game_state.current_node = dc.override_next_node.clone();
+                self.move_to_node(dc.override_next_node.clone());
                 let _ = save_game(&self.game_state);
                 self.advance_story = true;
                 return true;
@@ -358,7 +372,7 @@ impl App {
                 return;
             };
 
-            self.game_state.current_node = next;
+            self.move_to_node(next);
             crate::time::schedule_wait(&mut self.game_state, delay_info.seconds);
             let _ = save_game(&self.game_state);
 
@@ -382,7 +396,7 @@ impl App {
         if let Some(ref branches) = node.branch {
             for branch in branches {
                 if branch.condition.evaluate(&self.game_state) {
-                    self.game_state.current_node = branch.next_node.clone();
+                    self.move_to_node(branch.next_node.clone());
                     let _ = save_game(&self.game_state);
                     self.advance_story = true;
                     return;
@@ -408,7 +422,7 @@ impl App {
 
         // 5. Linear next_node
         if let Some(ref next) = node.next_node {
-            self.game_state.current_node = next.clone();
+            self.move_to_node(next.clone());
             let _ = save_game(&self.game_state);
             self.advance_story = true;
         } else {
@@ -425,7 +439,7 @@ impl App {
                 return;
             }
         }
-        self.game_state.current_node = choice.next_node.clone();
+        self.move_to_node(choice.next_node.clone());
         let _ = save_game(&self.game_state);
         self.advance_story = true;
     }
@@ -473,6 +487,8 @@ impl App {
                 text,
                 timestamp: chrono::Utc::now(),
             });
+            self.game_state.node_message_index =
+                self.game_state.node_message_index.saturating_add(1);
             let _ = save_game(&self.game_state);
         }
 
