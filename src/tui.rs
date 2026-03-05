@@ -831,7 +831,16 @@ fn handle_prompt_key(app: &mut App, code: KeyCode) {
                         ];
                         app.prompt_index = 0;
                         app.game_state = GameState::from_story(Language::En, &app.story_data);
+                        crate::time::set_waiting_times_enabled(
+                            app.game_state.settings.waiting_times_enabled,
+                        );
                         app.chat.clear();
+                        app.wait_for_space = false;
+                        app.typewriter = None;
+                        app.post_message_pause = None;
+                        app.message_queue.clear();
+                        app.choices.clear();
+                        app.choice_index = 0;
                     }
                 }
                 Screen::Ending => {
@@ -839,6 +848,9 @@ fn handle_prompt_key(app: &mut App, code: KeyCode) {
                         // Play again
                         let _ = crate::game::delete_save();
                         app.game_state = GameState::from_story(Language::En, &app.story_data);
+                        crate::time::set_waiting_times_enabled(
+                            app.game_state.settings.waiting_times_enabled,
+                        );
                         app.chat.clear();
                         app.ending_reached = None;
                         app.screen = Screen::LanguageSelect;
@@ -847,6 +859,12 @@ fn handle_prompt_key(app: &mut App, code: KeyCode) {
                             sys_msg(Msg::LanguageOption2, Language::En).to_string(),
                         ];
                         app.prompt_index = 0;
+                        app.wait_for_space = false;
+                        app.typewriter = None;
+                        app.post_message_pause = None;
+                        app.message_queue.clear();
+                        app.choices.clear();
+                        app.choice_index = 0;
                     } else {
                         // Quit
                         let _ = crate::game::delete_save();
