@@ -68,7 +68,6 @@ cargo build --release
 |------|-------------|
 | `--reset` | Delete save file and exit |
 | `--lang en` / `--lang fr` | Override starting language |
-| `--no-waiting` | Skip all real-time waiting delays |
 
 ### Debug mode
 
@@ -84,8 +83,11 @@ ESHARA_DEBUG=1 cargo run
 |-----|--------|
 | `Up` / `k` | Move selection up |
 | `Down` / `j` | Move selection down |
+| `Left` / `h` | Change selected pause option |
+| `Right` / `l` | Change selected pause option |
 | `Enter` | Confirm selection |
 | Any key | Skip typewriter animation |
+| `Space` | Continue when auto dialogs are disabled |
 | `Esc` | Open pause menu |
 
 ## Project structure

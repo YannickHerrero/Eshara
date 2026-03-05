@@ -8,6 +8,45 @@ use serde::{Deserialize, Serialize};
 
 use crate::i18n::Language;
 
+/// Text reveal speed for dialog messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextSpeed {
+    Normal,
+    Fast,
+    Instant,
+}
+
+impl Default for TextSpeed {
+    fn default() -> Self {
+        Self::Normal
+    }
+}
+
+/// Runtime settings configurable from the pause menu.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GameSettings {
+    #[serde(default)]
+    pub text_speed: TextSpeed,
+    #[serde(default = "default_true")]
+    pub waiting_times_enabled: bool,
+    #[serde(default = "default_true")]
+    pub automatic_dialogs_enabled: bool,
+}
+
+impl Default for GameSettings {
+    fn default() -> Self {
+        Self {
+            text_speed: TextSpeed::Normal,
+            waiting_times_enabled: true,
+            automatic_dialogs_enabled: true,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// A single entry in the message log
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
@@ -98,6 +137,9 @@ pub struct GameState {
     pub ending: Option<String>,
     /// The game day (narrative day tracker)
     pub day: u32,
+    /// Runtime settings configurable from the pause menu
+    #[serde(default)]
+    pub settings: GameSettings,
 }
 
 impl GameState {
@@ -119,6 +161,7 @@ impl GameState {
             node_message_index: 0,
             ending: None,
             day: 1,
+            settings: GameSettings::default(),
         }
     }
 
@@ -205,8 +248,6 @@ pub struct CliArgs {
     pub reset: bool,
     /// Optional language override
     pub language: Option<Language>,
-    /// If true, skip all real-time waiting delays
-    pub no_waiting: bool,
 }
 
 /// Parse command-line arguments (minimal, no dependency)
@@ -218,13 +259,11 @@ pub fn parse_cli_args() -> CliArgs {
 fn parse_cli_args_from(args: &[String]) -> CliArgs {
     let mut reset = false;
     let mut language = None;
-    let mut no_waiting = false;
 
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "--reset" => reset = true,
-            "--no-waiting" | "--no-wait" => no_waiting = true,
             "--lang" => {
                 if i + 1 < args.len() {
                     language = crate::i18n::parse_language(&args[i + 1]);
@@ -236,11 +275,7 @@ fn parse_cli_args_from(args: &[String]) -> CliArgs {
         i += 1;
     }
 
-    CliArgs {
-        reset,
-        language,
-        no_waiting,
-    }
+    CliArgs { reset, language }
 }
 
 #[cfg(test)]
@@ -291,6 +326,9 @@ mod tests {
         assert_eq!(deserialized.current_node, "a1_first_contact");
         assert_eq!(deserialized.language, Language::En);
         assert_eq!(deserialized.node_message_index, 0);
+        assert_eq!(deserialized.settings.text_speed, TextSpeed::Normal);
+        assert!(deserialized.settings.waiting_times_enabled);
+        assert!(deserialized.settings.automatic_dialogs_enabled);
     }
 
     #[test]
@@ -307,6 +345,9 @@ mod tests {
         }"#;
         let deserialized: GameState = serde_json::from_str(json).unwrap();
         assert_eq!(deserialized.node_message_index, 0);
+        assert_eq!(deserialized.settings.text_speed, TextSpeed::Normal);
+        assert!(deserialized.settings.waiting_times_enabled);
+        assert!(deserialized.settings.automatic_dialogs_enabled);
     }
 
     #[test]
@@ -335,18 +376,17 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_cli_args_no_waiting() {
-        let args = vec!["eshara".to_string(), "--no-waiting".to_string()];
+    fn test_parse_cli_args_reset() {
+        let args = vec!["eshara".to_string(), "--reset".to_string()];
         let parsed = parse_cli_args_from(&args);
-        assert!(parsed.no_waiting);
-        assert!(!parsed.reset);
+        assert!(parsed.reset);
         assert!(parsed.language.is_none());
     }
 
     #[test]
-    fn test_parse_cli_args_no_wait_alias() {
-        let args = vec!["eshara".to_string(), "--no-wait".to_string()];
+    fn test_parse_cli_args_language() {
+        let args = vec!["eshara".to_string(), "--lang".to_string(), "fr".to_string()];
         let parsed = parse_cli_args_from(&args);
-        assert!(parsed.no_waiting);
+        assert_eq!(parsed.language, Some(Language::Fr));
     }
 }

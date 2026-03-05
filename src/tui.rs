@@ -16,14 +16,15 @@ use ratatui::{
 
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseEvent, MouseEventKind};
 
-use crate::game::{save_game, GameState, LogEntry, Sender};
+use crate::game::{save_game, GameState, LogEntry, Sender, TextSpeed};
 use crate::i18n::{sys_msg, Language, Msg};
 use crate::story::{Choice, StoryData};
 
 // ── Constants ────────────────────────────────────────────────
 
 /// Milliseconds between each character reveal in typewriter mode.
-const TYPEWRITER_TICK_MS: u64 = 45;
+const TYPEWRITER_TICK_NORMAL_MS: u64 = 45;
+const TYPEWRITER_TICK_FAST_MS: u64 = 18;
 
 /// Milliseconds to show the "Elara is typing..." indicator.
 const TYPING_INDICATOR_MS: u64 = 1500;
@@ -83,16 +84,27 @@ pub struct TypewriterState {
     pub show_typing_indicator: bool,
     /// When the typing indicator started.
     pub indicator_start: Instant,
+    /// Milliseconds between each character reveal.
+    pub char_tick_ms: u64,
 }
 
 impl TypewriterState {
-    pub fn new(text: String) -> Self {
+    pub fn new(text: String, speed: TextSpeed) -> Self {
+        let char_tick_ms = match speed {
+            TextSpeed::Normal => TYPEWRITER_TICK_NORMAL_MS,
+            TextSpeed::Fast => TYPEWRITER_TICK_FAST_MS,
+            TextSpeed::Instant => 0,
+        };
+
+        let instant = speed == TextSpeed::Instant;
+        let revealed = if instant { text.len() } else { 0 };
         Self {
             full_text: text,
-            revealed: 0,
+            revealed,
             last_tick: Instant::now(),
-            show_typing_indicator: true,
+            show_typing_indicator: !instant,
             indicator_start: Instant::now(),
+            char_tick_ms,
         }
     }
 
@@ -138,7 +150,8 @@ impl TypewriterState {
             return;
         }
         if self.revealed < self.full_text.len()
-            && self.last_tick.elapsed() >= Duration::from_millis(TYPEWRITER_TICK_MS)
+            && (self.char_tick_ms == 0
+                || self.last_tick.elapsed() >= Duration::from_millis(self.char_tick_ms))
         {
             // Reveal one character (handle multi-byte)
             let remaining = &self.full_text[self.revealed..];
@@ -327,7 +340,11 @@ impl App {
         }
 
         let text = self.message_queue.remove(0);
-        self.typewriter = Some(TypewriterState::new(text));
+        let mut tw = TypewriterState::new(text, self.game_state.settings.text_speed);
+        if self.game_state.settings.text_speed == TextSpeed::Instant {
+            tw.skip();
+        }
+        self.typewriter = Some(tw);
     }
 
     /// Called when all messages for the current node have been displayed.
@@ -492,7 +509,7 @@ impl App {
             let _ = save_game(&self.game_state);
         }
 
-        if crate::time::no_waiting() {
+        if !self.game_state.settings.automatic_dialogs_enabled {
             self.post_message_pause = None;
             self.wait_for_space = true;
         } else {
@@ -668,7 +685,55 @@ fn handle_game_key(app: &mut App, code: KeyCode) {
 }
 
 fn handle_pause_menu_key(app: &mut App, code: KeyCode) {
-    let items = 3; // Resume, Change Language, Save & Quit
+    let items = 6; // Resume, Language, Text speed, Waiting times, Automatic dialogs, Save & Quit
+
+    let mut apply_setting = |forward: bool| match app.menu_index {
+        1 => {
+            let new_lang = match app.game_state.language {
+                Language::En => Language::Fr,
+                Language::Fr => Language::En,
+            };
+            app.game_state.language = new_lang;
+            let _ = save_game(&app.game_state);
+            app.chat.push(ChatEntry::System(
+                sys_msg(Msg::LanguageSwitched, new_lang).to_string(),
+            ));
+        }
+        2 => {
+            app.game_state.settings.text_speed = match (app.game_state.settings.text_speed, forward)
+            {
+                (TextSpeed::Normal, true) => TextSpeed::Fast,
+                (TextSpeed::Fast, true) => TextSpeed::Instant,
+                (TextSpeed::Instant, true) => TextSpeed::Normal,
+                (TextSpeed::Normal, false) => TextSpeed::Instant,
+                (TextSpeed::Fast, false) => TextSpeed::Normal,
+                (TextSpeed::Instant, false) => TextSpeed::Fast,
+            };
+            if app.game_state.settings.text_speed == TextSpeed::Instant {
+                if let Some(ref mut tw) = app.typewriter {
+                    tw.skip();
+                }
+            }
+            let _ = save_game(&app.game_state);
+        }
+        3 => {
+            app.game_state.settings.waiting_times_enabled =
+                !app.game_state.settings.waiting_times_enabled;
+            crate::time::set_waiting_times_enabled(app.game_state.settings.waiting_times_enabled);
+            let _ = save_game(&app.game_state);
+        }
+        4 => {
+            app.game_state.settings.automatic_dialogs_enabled =
+                !app.game_state.settings.automatic_dialogs_enabled;
+            if app.game_state.settings.automatic_dialogs_enabled && app.wait_for_space {
+                app.wait_for_space = false;
+                app.post_message_pause = Some(Instant::now());
+            }
+            let _ = save_game(&app.game_state);
+        }
+        _ => {}
+    };
+
     match code {
         KeyCode::Up | KeyCode::Char('k') => {
             if app.menu_index > 0 {
@@ -680,37 +745,24 @@ fn handle_pause_menu_key(app: &mut App, code: KeyCode) {
         KeyCode::Down | KeyCode::Char('j') => {
             app.menu_index = (app.menu_index + 1) % items;
         }
-        KeyCode::Enter => {
-            match app.menu_index {
-                0 => {
-                    // Resume
-                    app.resume_from_overlay();
-                }
-                1 => {
-                    // Change language
-                    let new_lang = match app.game_state.language {
-                        Language::En => Language::Fr,
-                        Language::Fr => Language::En,
-                    };
-                    app.game_state.language = new_lang;
-                    let _ = save_game(&app.game_state);
-                    app.chat.push(ChatEntry::System(
-                        sys_msg(Msg::LanguageSwitched, new_lang).to_string(),
-                    ));
-                    app.resume_from_overlay();
-                }
-                2 => {
-                    // Save & Quit
-                    let _ = save_game(&app.game_state);
-                    app.chat.push(ChatEntry::System(
-                        sys_msg(Msg::SavedAndQuit, app.lang()).to_string(),
-                    ));
-                    app.should_quit = true;
-                    app.overlay = Overlay::None;
-                }
-                _ => {}
-            }
+        KeyCode::Left | KeyCode::Char('h') => {
+            apply_setting(false);
         }
+        KeyCode::Right | KeyCode::Char('l') => {
+            apply_setting(true);
+        }
+        KeyCode::Enter => match app.menu_index {
+            0 => app.resume_from_overlay(),
+            5 => {
+                let _ = save_game(&app.game_state);
+                app.chat.push(ChatEntry::System(
+                    sys_msg(Msg::SavedAndQuit, app.lang()).to_string(),
+                ));
+                app.should_quit = true;
+                app.overlay = Overlay::None;
+            }
+            _ => apply_setting(true),
+        },
         KeyCode::Esc => {
             app.resume_from_overlay();
         }
@@ -746,7 +798,8 @@ fn handle_prompt_key(app: &mut App, code: KeyCode) {
                     // Transition to intro
                     app.screen = Screen::Intro;
                     let intro_text = sys_msg(Msg::IntroRadioCrackle, lang).to_string();
-                    app.intro_typewriter = Some(TypewriterState::new(intro_text));
+                    app.intro_typewriter =
+                        Some(TypewriterState::new(intro_text, TextSpeed::Normal));
                     // No typing indicator for intro
                     if let Some(ref mut tw) = app.intro_typewriter {
                         tw.show_typing_indicator = false;
@@ -1120,8 +1173,8 @@ fn draw_pause_menu(frame: &mut Frame, app: &App) {
     let lang = app.lang();
 
     // Centered popup
-    let popup_width = 40u16.min(area.width.saturating_sub(4));
-    let popup_height = 9u16.min(area.height.saturating_sub(4));
+    let popup_width = 58u16.min(area.width.saturating_sub(4));
+    let popup_height = 12u16.min(area.height.saturating_sub(4));
     let popup_area = centered_rect(popup_width, popup_height, area);
 
     // Clear the area behind the popup
@@ -1140,33 +1193,117 @@ fn draw_pause_menu(frame: &mut Frame, app: &App) {
     let inner = block.inner(popup_area);
     frame.render_widget(block, popup_area);
 
+    let language_value = match app.game_state.language {
+        Language::Fr => format!(
+            "[{}] | {}",
+            sys_msg(Msg::SettingLangFr, lang),
+            sys_msg(Msg::SettingLangEn, lang)
+        ),
+        Language::En => format!(
+            "{} | [{}]",
+            sys_msg(Msg::SettingLangFr, lang),
+            sys_msg(Msg::SettingLangEn, lang)
+        ),
+    };
+    let text_speed_value = match app.game_state.settings.text_speed {
+        TextSpeed::Normal => format!(
+            "[{}] | {} | {}",
+            sys_msg(Msg::SettingSpeedNormal, lang),
+            sys_msg(Msg::SettingSpeedFast, lang),
+            sys_msg(Msg::SettingSpeedInstant, lang)
+        ),
+        TextSpeed::Fast => format!(
+            "{} | [{}] | {}",
+            sys_msg(Msg::SettingSpeedNormal, lang),
+            sys_msg(Msg::SettingSpeedFast, lang),
+            sys_msg(Msg::SettingSpeedInstant, lang)
+        ),
+        TextSpeed::Instant => format!(
+            "{} | {} | [{}]",
+            sys_msg(Msg::SettingSpeedNormal, lang),
+            sys_msg(Msg::SettingSpeedFast, lang),
+            sys_msg(Msg::SettingSpeedInstant, lang)
+        ),
+    };
+    let waiting_value = if app.game_state.settings.waiting_times_enabled {
+        format!(
+            "[{}] | {}",
+            sys_msg(Msg::SettingEnabled, lang),
+            sys_msg(Msg::SettingDisabled, lang)
+        )
+    } else {
+        format!(
+            "{} | [{}]",
+            sys_msg(Msg::SettingEnabled, lang),
+            sys_msg(Msg::SettingDisabled, lang)
+        )
+    };
+    let automatic_dialogs_value = if app.game_state.settings.automatic_dialogs_enabled {
+        format!(
+            "[{}] | {}",
+            sys_msg(Msg::SettingEnabled, lang),
+            sys_msg(Msg::SettingDisabled, lang)
+        )
+    } else {
+        format!(
+            "{} | [{}]",
+            sys_msg(Msg::SettingEnabled, lang),
+            sys_msg(Msg::SettingDisabled, lang)
+        )
+    };
+
     let items = vec![
-        sys_msg(Msg::MenuResume, lang),
-        sys_msg(Msg::MenuChangeLanguage, lang),
-        sys_msg(Msg::MenuSaveQuit, lang),
+        (sys_msg(Msg::MenuResume, lang), String::new()),
+        (sys_msg(Msg::MenuLanguage, lang), language_value),
+        (sys_msg(Msg::MenuTextSpeed, lang), text_speed_value),
+        (sys_msg(Msg::MenuWaitingTimes, lang), waiting_value),
+        (
+            sys_msg(Msg::MenuAutomaticDialogs, lang),
+            automatic_dialogs_value,
+        ),
+        (sys_msg(Msg::MenuSaveQuit, lang), String::new()),
     ];
 
     let mut lines = Vec::new();
-    for (i, item) in items.iter().enumerate() {
-        let (prefix, style) = if i == app.menu_index {
-            (
-                "> ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            )
+    for (i, (label, value)) in items.iter().enumerate() {
+        let selected = i == app.menu_index;
+        let marker = if selected { "> " } else { "  " };
+        let left_style = if selected {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
-            (
-                "  ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::DIM),
-            )
+            Style::default().fg(Color::DarkGray)
         };
-        lines.push(Line::from(Span::styled(
-            format!("{}{}", prefix, item),
-            style,
-        )));
+
+        let value_style = Style::default()
+            .fg(if selected { Color::Cyan } else { Color::Gray })
+            .add_modifier(if selected {
+                Modifier::BOLD
+            } else {
+                Modifier::DIM
+            });
+
+        if value.is_empty() {
+            lines.push(Line::from(Span::styled(
+                format!("{}{}", marker, label),
+                left_style,
+            )));
+        } else {
+            let available = inner.width.saturating_sub(2) as usize;
+            let used = label.len() + value.len();
+            let spacing = if available > used {
+                available - used
+            } else {
+                1
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(format!("{}{}", marker, label), left_style),
+                Span::raw(" ".repeat(spacing)),
+                Span::styled(value.clone(), value_style),
+            ]));
+        }
     }
 
     let text = Text::from(lines);

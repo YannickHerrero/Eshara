@@ -6,17 +6,21 @@ use chrono::{DateTime, Duration as ChronoDuration, Local, Utc};
 use crate::game::GameState;
 use crate::i18n::Language;
 
-/// Global runtime switch enabled by `--no-waiting`
+/// Global runtime switch for skipping all real-time waits.
 static NO_WAITING: AtomicBool = AtomicBool::new(false);
 
-/// Enable/disable skipping all real-time waits for this process.
-pub fn set_no_waiting(enabled: bool) {
-    NO_WAITING.store(enabled, Ordering::Relaxed);
+fn skip_waiting() -> bool {
+    NO_WAITING.load(Ordering::Relaxed)
 }
 
-/// Whether all real-time waits should be skipped.
-pub fn no_waiting() -> bool {
-    NO_WAITING.load(Ordering::Relaxed)
+/// Enable/disable real-time waits for this process.
+pub fn set_waiting_times_enabled(enabled: bool) {
+    NO_WAITING.store(!enabled, Ordering::Relaxed);
+}
+
+/// Whether real-time waits are currently enabled.
+pub fn waiting_times_enabled() -> bool {
+    !skip_waiting()
 }
 
 /// Check if debug mode is enabled (ESHARA_DEBUG=1)
@@ -29,7 +33,7 @@ pub fn is_debug_mode() -> bool {
 
 /// Get the effective delay in seconds (respects debug mode)
 pub fn effective_delay(seconds: u64) -> u64 {
-    if no_waiting() {
+    if skip_waiting() {
         return 0;
     }
 
@@ -54,7 +58,7 @@ pub fn schedule_wait(state: &mut GameState, seconds: u64) {
 
 /// Check if Elara is currently busy (waiting_until is in the future)
 pub fn is_waiting(state: &GameState) -> bool {
-    if no_waiting() {
+    if skip_waiting() {
         return false;
     }
 
@@ -112,9 +116,17 @@ mod tests {
     fn test_effective_delay_normal() {
         // Without ESHARA_DEBUG set, should return the original value
         // (This test assumes ESHARA_DEBUG is not set in the test env)
+        set_waiting_times_enabled(true);
         if !is_debug_mode() {
             assert_eq!(effective_delay(300), 300);
         }
+    }
+
+    #[test]
+    fn test_effective_delay_when_waiting_disabled() {
+        set_waiting_times_enabled(false);
+        assert_eq!(effective_delay(300), 0);
+        set_waiting_times_enabled(true);
     }
 
     #[test]

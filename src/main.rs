@@ -22,7 +22,6 @@ fn main() {
 
 fn run() -> io::Result<()> {
     let args = parse_cli_args();
-    time::set_no_waiting(args.no_waiting);
 
     // Handle --reset
     if args.reset {
@@ -44,6 +43,7 @@ fn run() -> io::Result<()> {
             let lang = args.language.unwrap_or(existing.language);
             let mut state = existing;
             state.language = lang;
+            time::set_waiting_times_enabled(state.settings.waiting_times_enabled);
 
             if time::is_waiting(&state) {
                 // Elara is still busy — keep the user in chat view.
@@ -66,6 +66,7 @@ fn run() -> io::Result<()> {
             // Corrupted save — start fresh
             let lang = args.language.unwrap_or(Language::En);
             let state = GameState::from_story(lang, &story_data);
+            time::set_waiting_times_enabled(state.settings.waiting_times_enabled);
             let opts = vec![
                 sys_msg(Msg::LanguageOption1, Language::En).to_string(),
                 sys_msg(Msg::LanguageOption2, Language::En).to_string(),
@@ -76,6 +77,7 @@ fn run() -> io::Result<()> {
         // No save — new game
         let lang = args.language.unwrap_or(Language::En);
         let state = GameState::from_story(lang, &story_data);
+        time::set_waiting_times_enabled(state.settings.waiting_times_enabled);
         let opts = vec![
             sys_msg(Msg::LanguageOption1, Language::En).to_string(),
             sys_msg(Msg::LanguageOption2, Language::En).to_string(),
