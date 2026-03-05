@@ -393,19 +393,31 @@ impl App {
             crate::time::schedule_wait(&mut self.game_state, delay_info.seconds);
             let _ = save_game(&self.game_state);
 
-            let until = self.game_state.waiting_until.unwrap();
-            let remaining = crate::time::remaining_time_str(until, lang);
-            let delay_msg = delay_info.message.get(lang);
-            self.wait_message = Some(delay_msg.to_string());
-            self.chat
-                .push(ChatEntry::System(format!("{} (~{})", delay_msg, remaining)));
-            self.game_state.message_log.push(LogEntry {
-                sender: Sender::System,
-                text: format!("{} (~{})", delay_msg, remaining),
-                timestamp: chrono::Utc::now(),
-            });
-            self.chat_scroll = 0;
-            self.advance_story = false;
+            if let Some(until) = self.game_state.waiting_until {
+                let remaining = crate::time::remaining_time_str(until, lang);
+                let delay_msg = delay_info.message.get(lang);
+                let line = format!("{} (~{})", delay_msg, remaining);
+                self.wait_message = Some(delay_msg.to_string());
+                self.chat.push(ChatEntry::System(line.clone()));
+                self.game_state.message_log.push(LogEntry {
+                    sender: Sender::System,
+                    text: line,
+                    timestamp: chrono::Utc::now(),
+                });
+                self.chat_scroll = 0;
+                self.advance_story = false;
+            } else {
+                let line = format!("[{}]", format_elapsed_time(delay_info.seconds, lang));
+                self.wait_message = None;
+                self.chat.push(ChatEntry::System(line.clone()));
+                self.game_state.message_log.push(LogEntry {
+                    sender: Sender::System,
+                    text: line,
+                    timestamp: chrono::Utc::now(),
+                });
+                self.chat_scroll = 0;
+                self.advance_story = true;
+            }
             return;
         }
 
@@ -1610,6 +1622,45 @@ fn wrapped_line_count(text: &Text, width: u16) -> usize {
             }
         })
         .sum()
+}
+
+fn format_elapsed_time(seconds: u64, lang: Language) -> String {
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+
+    if hours > 0 {
+        if lang == Language::Fr {
+            if minutes > 0 {
+                format!("{} h {} min écoulé", hours, minutes)
+            } else {
+                format!("{} h écoulé", hours)
+            }
+        } else if minutes > 0 {
+            format!(
+                "{} hour{} and {} minute{} passed",
+                hours,
+                if hours > 1 { "s" } else { "" },
+                minutes,
+                if minutes > 1 { "s" } else { "" }
+            )
+        } else {
+            format!("{} hour{} passed", hours, if hours > 1 { "s" } else { "" })
+        }
+    } else if minutes > 0 {
+        if lang == Language::Fr {
+            format!("{} min écoulé", minutes)
+        } else {
+            format!(
+                "{} minute{} passed",
+                minutes,
+                if minutes > 1 { "s" } else { "" }
+            )
+        }
+    } else if lang == Language::Fr {
+        "quelques secondes ont passé".to_string()
+    } else {
+        "a few seconds passed".to_string()
+    }
 }
 
 /// Helper: create a centered rect of given width/height within an area.
