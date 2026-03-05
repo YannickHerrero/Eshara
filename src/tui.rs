@@ -387,19 +387,37 @@ impl App {
             return;
         }
 
-        // 2. Handle real-time delay
-        if let Some(ref delay_info) = node.delay {
-            // Determine which node to advance to after the delay
-            let next = if let Some(ref choices) = node.choices {
-                if !choices.is_empty() {
-                    choices[0].next_node.clone()
-                } else if let Some(ref next) = node.next_node {
-                    next.clone()
-                } else {
-                    self.should_quit = true;
+        // 2. Handle conditional branching (evaluated in order; first match wins)
+        if let Some(ref branches) = node.branch {
+            for branch in branches {
+                if branch.condition.evaluate(&self.game_state) {
+                    self.move_to_node(branch.next_node.clone());
+                    let _ = save_game(&self.game_state);
+                    self.advance_story = true;
                     return;
                 }
-            } else if let Some(ref next) = node.next_node {
+            }
+            // No branch matched — this shouldn't happen if story is well-formed,
+            // but fall through to choices/next_node
+        }
+
+        // 3. Handle choices
+        if let Some(ref choices) = node.choices {
+            if !choices.is_empty() {
+                let choice_labels: Vec<String> = choices
+                    .iter()
+                    .map(|c| c.label.get(lang).to_string())
+                    .collect();
+
+                self.choices = choice_labels;
+                self.choice_index = 0;
+                return;
+            }
+        }
+
+        // 4. Handle real-time delay
+        if let Some(ref delay_info) = node.delay {
+            let next = if let Some(ref next) = node.next_node {
                 next.clone()
             } else {
                 self.should_quit = true;
@@ -436,34 +454,6 @@ impl App {
                 self.advance_story = true;
             }
             return;
-        }
-
-        // 3. Handle conditional branching (evaluated in order; first match wins)
-        if let Some(ref branches) = node.branch {
-            for branch in branches {
-                if branch.condition.evaluate(&self.game_state) {
-                    self.move_to_node(branch.next_node.clone());
-                    let _ = save_game(&self.game_state);
-                    self.advance_story = true;
-                    return;
-                }
-            }
-            // No branch matched — this shouldn't happen if story is well-formed,
-            // but fall through to choices/next_node
-        }
-
-        // 4. Handle choices
-        if let Some(ref choices) = node.choices {
-            if !choices.is_empty() {
-                let choice_labels: Vec<String> = choices
-                    .iter()
-                    .map(|c| c.label.get(lang).to_string())
-                    .collect();
-
-                self.choices = choice_labels;
-                self.choice_index = 0;
-                return;
-            }
         }
 
         // 5. Linear next_node

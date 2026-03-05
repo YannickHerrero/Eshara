@@ -921,7 +921,7 @@
         }
       ],
       "next_node": null,
-      "delay": { "seconds": 28800, "message": { "en": "Elara is resting at the outpost. First safe sleep in days.", "fr": "Elara se repose à la station. Premier sommeil tranquille depuis des jours." } },
+      "delay": null,
       "on_enter": { "health_change": 1 }
     },
 
@@ -951,7 +951,7 @@
         }
       ],
       "next_node": null,
-      "delay": { "seconds": 1800, "message": { "en": "Elara is traveling toward the facility.", "fr": "Elara se dirige vers l'installation." } },
+      "delay": null,
       "on_enter": null
     },
 

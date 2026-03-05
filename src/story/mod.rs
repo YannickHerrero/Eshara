@@ -315,6 +315,13 @@ impl StoryData {
 
         // 2. All referenced nodes must exist
         for (id, node) in &self.nodes {
+            if node.delay.is_some() && node.choices.as_ref().is_some_and(|c| !c.is_empty()) {
+                errors.push(format!(
+                    "Node '{}' is invalid: cannot have both choices and delay",
+                    id
+                ));
+            }
+
             if let Some(ref next) = node.next_node {
                 if !self.nodes.contains_key(next) {
                     errors.push(format!(
@@ -523,5 +530,31 @@ mod tests {
         assert_eq!(state.stats.trust, 5);
         assert_eq!(state.stats.health, 9);
         assert!(state.has_flag("test_flag"));
+    }
+
+    #[test]
+    fn test_validate_rejects_choices_with_delay() {
+        let mut story_data: StoryData = serde_json::from_str(EMBEDDED_STORY).unwrap();
+        let node = story_data
+            .nodes
+            .values_mut()
+            .find(|n| n.choices.as_ref().is_some_and(|c| !c.is_empty()))
+            .unwrap();
+        node.delay = Some(DelayInfo {
+            seconds: 1,
+            message: LocalizedString {
+                en: "test".to_string(),
+                fr: "test".to_string(),
+            },
+        });
+
+        let errors = story_data.validate();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("cannot have both choices and delay")),
+            "Expected choices+delay validation error, got: {:?}",
+            errors
+        );
     }
 }
