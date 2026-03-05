@@ -194,6 +194,8 @@ pub struct App {
     pub intro_typewriter: Option<TypewriterState>,
     /// Post-message pause timer (small delay after a message finishes).
     pub post_message_pause: Option<Instant>,
+    /// In --no-waiting mode, require Space before moving to the next message.
+    pub wait_for_space: bool,
     /// Ending key reached (for the ending screen), e.g. "still_here", "gone_dark".
     pub ending_reached: Option<String>,
     /// Wait screen info.
@@ -221,6 +223,7 @@ impl App {
             advance_story: true,
             intro_typewriter: None,
             post_message_pause: None,
+            wait_for_space: false,
             ending_reached: None,
             wait_message: None,
         }
@@ -301,6 +304,8 @@ impl App {
 
     /// Pop the next message from the queue and start its typewriter animation.
     fn start_next_message(&mut self) {
+        self.wait_for_space = false;
+
         if self.message_queue.is_empty() {
             // All messages displayed — now handle the node's outcome
             self.handle_node_outcome();
@@ -471,8 +476,13 @@ impl App {
             let _ = save_game(&self.game_state);
         }
 
-        // Small pause before next message
-        self.post_message_pause = Some(Instant::now());
+        if crate::time::no_waiting() {
+            self.post_message_pause = None;
+            self.wait_for_space = true;
+        } else {
+            // Small pause before next message
+            self.post_message_pause = Some(Instant::now());
+        }
     }
 
     /// Close the overlay and reset animation timers so nothing fast-forwards.
@@ -556,6 +566,30 @@ fn handle_game_key(app: &mut App, code: KeyCode) {
             }
             return;
         }
+    }
+
+    if app.wait_for_space {
+        match code {
+            KeyCode::Char(' ') => app.start_next_message(),
+            KeyCode::Up | KeyCode::Char('k') | KeyCode::PageUp => {
+                scroll_chat_up(app, 3);
+            }
+            KeyCode::Down | KeyCode::Char('j') | KeyCode::PageDown => {
+                scroll_chat_down(app, 3);
+            }
+            KeyCode::Home => {
+                scroll_chat_up(app, u16::MAX);
+            }
+            KeyCode::End => {
+                app.chat_scroll = 0;
+            }
+            KeyCode::Esc => {
+                app.overlay = Overlay::PauseMenu;
+                app.menu_index = 0;
+            }
+            _ => {}
+        }
+        return;
     }
 
     // If we're showing choices
@@ -982,6 +1016,16 @@ fn draw_game(frame: &mut Frame, app: &App) {
                 ]));
             }
         }
+        lines.push(Line::from(""));
+    }
+
+    if app.wait_for_space && app.typewriter.is_none() && app.post_message_pause.is_none() {
+        lines.push(Line::from(Span::styled(
+            "  [press space to continue]",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )));
         lines.push(Line::from(""));
     }
 
