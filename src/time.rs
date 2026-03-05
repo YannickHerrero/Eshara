@@ -1,9 +1,23 @@
 use std::env;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use chrono::{DateTime, Duration as ChronoDuration, Local, Utc};
 
 use crate::game::GameState;
 use crate::i18n::Language;
+
+/// Global runtime switch enabled by `--no-waiting`
+static NO_WAITING: AtomicBool = AtomicBool::new(false);
+
+/// Enable/disable skipping all real-time waits for this process.
+pub fn set_no_waiting(enabled: bool) {
+    NO_WAITING.store(enabled, Ordering::Relaxed);
+}
+
+/// Whether all real-time waits should be skipped.
+pub fn no_waiting() -> bool {
+    NO_WAITING.load(Ordering::Relaxed)
+}
 
 /// Check if debug mode is enabled (ESHARA_DEBUG=1)
 /// In debug mode, all delays are reduced to 5 seconds
@@ -15,6 +29,10 @@ pub fn is_debug_mode() -> bool {
 
 /// Get the effective delay in seconds (respects debug mode)
 pub fn effective_delay(seconds: u64) -> u64 {
+    if no_waiting() {
+        return 0;
+    }
+
     if is_debug_mode() {
         5 // All delays become 5 seconds in debug mode
     } else {
@@ -26,12 +44,20 @@ pub fn effective_delay(seconds: u64) -> u64 {
 /// Sets `waiting_until` on the game state
 pub fn schedule_wait(state: &mut GameState, seconds: u64) {
     let delay = effective_delay(seconds);
+    if delay == 0 {
+        state.waiting_until = None;
+        return;
+    }
     let until = Utc::now() + ChronoDuration::seconds(delay as i64);
     state.waiting_until = Some(until);
 }
 
 /// Check if Elara is currently busy (waiting_until is in the future)
 pub fn is_waiting(state: &GameState) -> bool {
+    if no_waiting() {
+        return false;
+    }
+
     if let Some(until) = state.waiting_until {
         Utc::now() < until
     } else {

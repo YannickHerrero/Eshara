@@ -22,6 +22,7 @@ fn main() {
 
 fn run() -> io::Result<()> {
     let args = parse_cli_args();
+    time::set_no_waiting(args.no_waiting);
 
     // Handle --reset
     if args.reset {

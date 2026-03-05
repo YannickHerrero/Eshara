@@ -201,18 +201,26 @@ pub struct CliArgs {
     pub reset: bool,
     /// Optional language override
     pub language: Option<Language>,
+    /// If true, skip all real-time waiting delays
+    pub no_waiting: bool,
 }
 
 /// Parse command-line arguments (minimal, no dependency)
 pub fn parse_cli_args() -> CliArgs {
     let args: Vec<String> = std::env::args().collect();
+    parse_cli_args_from(&args)
+}
+
+fn parse_cli_args_from(args: &[String]) -> CliArgs {
     let mut reset = false;
     let mut language = None;
+    let mut no_waiting = false;
 
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "--reset" => reset = true,
+            "--no-waiting" | "--no-wait" => no_waiting = true,
             "--lang" => {
                 if i + 1 < args.len() {
                     language = crate::i18n::parse_language(&args[i + 1]);
@@ -224,7 +232,11 @@ pub fn parse_cli_args() -> CliArgs {
         i += 1;
     }
 
-    CliArgs { reset, language }
+    CliArgs {
+        reset,
+        language,
+        no_waiting,
+    }
 }
 
 #[cfg(test)]
@@ -299,5 +311,21 @@ mod tests {
     fn test_save_dir_path() {
         let dir = save_dir();
         assert!(dir.to_string_lossy().contains(".eshara"));
+    }
+
+    #[test]
+    fn test_parse_cli_args_no_waiting() {
+        let args = vec!["eshara".to_string(), "--no-waiting".to_string()];
+        let parsed = parse_cli_args_from(&args);
+        assert!(parsed.no_waiting);
+        assert!(!parsed.reset);
+        assert!(parsed.language.is_none());
+    }
+
+    #[test]
+    fn test_parse_cli_args_no_wait_alias() {
+        let args = vec!["eshara".to_string(), "--no-wait".to_string()];
+        let parsed = parse_cli_args_from(&args);
+        assert!(parsed.no_waiting);
     }
 }

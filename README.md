@@ -68,6 +68,7 @@ cargo build --release
 |------|-------------|
 | `--reset` | Delete save file and exit |
 | `--lang en` / `--lang fr` | Override starting language |
+| `--no-waiting` | Skip all real-time waiting delays |
 
 ### Debug mode
 
